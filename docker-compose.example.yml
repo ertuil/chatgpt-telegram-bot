@@ -5,6 +5,8 @@ services:
         image: ghcr.io/ertuil/chatgpt-telegram-bot:latest
         command: python main.py
         restart: always
+        volumes:
+          - ./data:/app/data
         environment:
           - OPENAI_API_KEY=
           - TELEGRAM_BOT_TOKEN=

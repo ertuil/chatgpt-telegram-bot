@@ -432,6 +432,8 @@ async def completion(
                 try:
                     yield "\n\n【参考资料】\n"
                     for idx, ref in enumerate(ref_list):
+                        dref = ref.replace("]", "").replace("[", "").replace("^", "").strip()
+                        dref = int(dref) - 1
                         yield f"{ref} {list(content_set.keys())[idx]}\n"
                 except Exception:
                     traceback.print_exc()
@@ -768,7 +770,7 @@ if __name__ == "__main__":
     consoleHandler.setFormatter(logFormatter)
     rootLogger.addHandler(consoleHandler)
 
-    with shelve.open("db") as db:
+    with shelve.open("data/db") as db:
         if "whitelist" not in db:
             db["whitelist"] = {ADMIN_ID}
         bot_id = int(TELEGRAM_BOT_TOKEN.split(":")[0])
