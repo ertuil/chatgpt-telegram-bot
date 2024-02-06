@@ -80,7 +80,7 @@ async def async_crawler(url: str, title: str, content_set: Dict[str, str]):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.67",
         "referer": "https://www.google.com/",
     }
-    async with httpx.AsyncClient(headers=headers, timeout=TimeoutSetting) as client:
+    async with httpx.AsyncClient(headers=headers, timeout=TimeoutSetting, follow_redirects=True) as client:
         try:
             response = await client.get(url)
             # 处理响应数据
