@@ -33,7 +33,7 @@ GOOGLE_CSE_ID = os.environ.get("GOOGLE_CSE_ID")
 
 client = AsyncOpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
-    timeout=httpx.Timeout(15.0, read=10.0, write=10.0, connect=5.0),
+    timeout=httpx.Timeout(15.0, read=15.0, write=15.0, connect=5.0),
 )
 
 
