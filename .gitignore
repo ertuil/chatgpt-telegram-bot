@@ -1,0 +1,5 @@
+env
+main.py.log
+*.log
+db
+docker-compose.yml

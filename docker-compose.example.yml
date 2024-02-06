@@ -1,0 +1,14 @@
+version: '3'
+
+services:
+    bot:
+        build: .
+        command: python main.py
+        restart: always
+        environment:
+          - OPENAI_API_KEY=
+          - TELEGRAM_BOT_TOKEN=
+          - TELEGRAM_ADMIN_ID=
+          - DEFAULT_MODEL=gpt-3.5-turbo
+          - GOOGLE_API_KEY=
+          - GOOGLE_CSE_ID=
