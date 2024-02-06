@@ -108,18 +108,21 @@ def is_chinese(string):
     return False
 
 
-def get_query_question(query: str):
-    if len(query) < 15:
-        return query
+def get_query_question(query_list: List[str]):
+    if len(query_list) == 1 and len(query_list[0]) < 15:
+        return query_list[0]
 
+    query_msg = "\n".join(query_list)
     model = DEFAULT_MODEL
     prompt = f"""Conclude a concise Google Search question of the following within 15 words:
 
-{query}
+{query_msg}
+
 """
-    if is_chinese(query):
+    if is_chinese(query_msg):
         prompt += "请用简体中文回复"
     message = [{"role": "system", "content": prompt}]
+    logging.info(f"Summary request: {prompt}")
 
     resp = sclient.chat.completions.create(
         model=model,
@@ -320,20 +323,13 @@ async def completion(
     tmp_content_set: Dict[str, str] = {}
     if GOOGLE_API_KEY is not None and GOOGLE_CSE_ID is not None:
         context_len = 0
-        s = requests.Session()
-        s.headers.update(
-            {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.67",
-                "referer": "https://www.google.com/",
-            }
-        )
-
         google_url_list: List[str] = []
         google_title_list: List[str] = []
 
         # step 1: search google
         try:
-            google_question = get_query_question(last_question)
+            question_list = [ c for idx, c in enumerate(chat_history) if idx % 2 == 0]
+            google_question = get_query_question(question_list)
             result = google_search(google_question)
             for webpage in result[
                 : min(len(result), TOTAL_WEB_LIMIT // PAGE_LIMIT + 2)
