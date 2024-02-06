@@ -364,6 +364,8 @@ async def completion(
     logging.info(f"context set: {content_set}")
     language = "简体中文" if is_chinese(last_question) else "English"
     prompt = PROMPT(model, content_set, language)
+    if is_chinese(last_question):
+        prompt += "请用简体中文回复"
 
     messages = [{"role": "system", "content": prompt}]
     ll = len(prompt)
@@ -424,6 +426,7 @@ async def completion(
         if obj.finish_reason is not None:
             if obj.finish_reason == "length":
                 yield " [!Output truncated due to limit]"
+            full_answer.replace("^]", "]")
             ref_list = re.findall(r"\[\^\d\]", full_answer)
             if len(ref_list) > 0:
                 try:
