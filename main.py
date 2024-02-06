@@ -98,7 +98,19 @@ async def async_crawler(url: str, title: str, content_set: Dict[str, str]):
             return
 
 
-def PROMPT(model, context_set: Dict[str, str] = []):
+def is_chinese(string):
+    """
+    检查整个字符串是否包含中文
+    :param string: 需要检查的字符串
+    :return: bool
+    """
+    for ch in string:
+        if u'\u4e00' <= ch <= u'\u9fff':
+            return True
+ 
+    return False
+
+def PROMPT(model, context_set: Dict[str, str] = [], language = "English"):
 
     if len(context_set) == 0:
         s = "You are ChatGPT Telegram bot. ChatGPT is a large language model trained by OpenAI. Answer as concisely as possible. Knowledge cutoff: Sep 2021. Current Beijing Time: {current_time}"
@@ -110,6 +122,7 @@ def PROMPT(model, context_set: Dict[str, str] = []):
 Current Beijing date: {current_time}
 
 Instructions: You are ChatGPT Telegram bot, trained by OpenAI. Answer as concisely as possible. You can use the provided web search results if you do not know the answer. Make sure to cite results using [^[index]] (e.g. [^1] [^2]) notation after the reference.
+Reply in {reply_language} language.
 """
         websearch_list = []
         for idx, (url, content) in enumerate(context_set.items()):
@@ -328,7 +341,8 @@ async def completion(
                 break
 
     logging.info(f"context set: {content_set}")
-    prompt = PROMPT(model, content_set)
+    language = "简体中文" if is_chinese(last_question) else "English"
+    prompt = PROMPT(model, content_set, language)
 
     messages = [{"role": "system", "content": prompt}]
     ll = len(prompt)
