@@ -1,5 +1,6 @@
 env
 main.py.log
 *.log
+data
 db
 docker-compose.yml
