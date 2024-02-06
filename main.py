@@ -6,6 +6,7 @@ import datetime
 import time
 import json
 import traceback
+from typing import Dict, List
 import openai
 from openai import AsyncOpenAI
 import requests
@@ -31,14 +32,15 @@ DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "gpt-3.5-turbo")
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 GOOGLE_CSE_ID = os.environ.get("GOOGLE_CSE_ID")
 
-client = AsyncOpenAI(
-    api_key=os.environ.get("OPENAI_API_KEY"),
-    timeout=httpx.Timeout(15.0, read=15.0, write=15.0, connect=5.0),
-)
+TimeoutSetting = httpx.Timeout(15.0, read=15.0, write=15.0, connect=5.0)
+
+client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"), timeout=TimeoutSetting)
 
 
 TELEGRAM_LENGTH_LIMIT = 4096
 TELEGRAM_MIN_INTERVAL = 3
+PAGE_LIMIT = 600
+TOTAL_WEB_LIMIT = 3200
 OPENAI_MAX_RETRY = 3
 OPENAI_RETRY_INTERVAL = 10
 FIRST_BATCH_DELAY = 1
@@ -70,17 +72,51 @@ def google_search(search_term, **kwargs):
         return []
 
 
-def PROMPT(model, context_list=[]):
+async def async_crawler(url: str, title: str, content_set: Dict[str, str]):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.67",
+        "referer": "https://www.google.com/",
+    }
+    async with httpx.AsyncClient(headers=headers, timeout=TimeoutSetting) as client:
+        try:
+            response = await client.get(url)
+            # 处理响应数据
+            context_para = [f"Title: {title}", "Content:"]
+            logging.info(f"crawler get {title} {url}")
 
-    if len(context_list) == 0:
+            soup = BeautifulSoup(response.text, "html.parser")
+            for elem in soup.find_all(
+                ["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "tr"]
+            ):
+                text = elem.get_text(strip=True, separator=" ")
+                context_para.append(text)
+
+            article_msg = " ".join(context_para)
+            content_set[url] = article_msg
+        except Exception as e:
+            logging.error(f"get {url} error: {str(e)}")
+            return
+
+
+def PROMPT(model, context_set: Dict[str, str] = []):
+
+    if len(context_set) == 0:
         s = "You are ChatGPT Telegram bot. ChatGPT is a large language model trained by OpenAI. Answer as concisely as possible. Knowledge cutoff: Sep 2021. Current Beijing Time: {current_time}"
 
     else:
-        s = """You are ChatGPT Telegram bot. ChatGPT is a large language model trained by OpenAI. Answer as concisely as possible. Your knowledge: 
+        s = """Web search results:
+
+{web_results}
+Current Beijing date: {current_time}
+
+Instructions: You are ChatGPT Telegram bot, trained by OpenAI. Answer as concisely as possible. You can use the provided web search results if you do not know the answer. Make sure to cite results using [^[index]] (e.g. [^1] [^2]) notation after the reference.
 """
-        for c in context_list:
-            s += f"{c}\n"
-        s += "Current Beijing Time: {current_time}"
+        websearch_list = []
+        for idx, (url, content) in enumerate(context_set.items()):
+            item = f"[{idx}] url: {url}  {content}"
+            websearch_list.append(item)
+        web_results = "\n".join(websearch_list)
+        s = s.replace("{web_results}", web_results)
 
     s = s.replace(
         "{current_time}",
@@ -243,10 +279,9 @@ async def completion(
     logging.info("chat_history: %r", chat_history)
     last_question = chat_history[-1]
 
-    context_list = []
-    source_list = []
+    content_set: Dict[str, str] = {}
+    tmp_content_set: Dict[str, str] = {}
     if GOOGLE_API_KEY is not None and GOOGLE_CSE_ID is not None:
-        yield f"【搜索Google】\n 关键词： {last_question}\n"
         context_len = 0
         s = requests.Session()
         s.headers.update(
@@ -255,49 +290,45 @@ async def completion(
                 "referer": "https://www.google.com/",
             }
         )
+
+        google_url_list: List[str] = []
+        google_title_list: List[str] = []
+
+        # step 1: search google
         try:
             result = google_search(last_question)
-            for webpage in result:
+            for webpage in result[
+                : min(len(result), TOTAL_WEB_LIMIT // PAGE_LIMIT + 2)
+            ]:
                 url = webpage.get("url", "")
                 if url == "":
                     continue
-                try:
-                    article_context = []
-
-                    context_para = [f"Title: {webpage['title']}", "Content:"]
-                    logging.info(f"get {url}")
-                    web_page = s.get(url, timeout=5)
-                    soup = BeautifulSoup(web_page.text, "html.parser")
-                    for elem in soup.find_all(
-                        ["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "tr"]
-                    ):
-                        text = elem.get_text(strip=True, separator=" ")
-                        context_para.append(text)
-                    source_list.append(url)
-                    break_flag = False
-                    article_len = 0
-                    for c in context_para:
-                        context_len += len(c)
-                        article_len += len(c)
-                        if article_len > 1200:
-                            article_context.append("...")
-                            break
-                        if context_len > 3000:
-                            break_flag = True
-                            break
-                        article_context.append(c)
-
-                    article_msg = " ".join(article_context)
-                    context_list.append(article_msg)
-                    if break_flag:
-                        break
-                except Exception as e:
-                    logging.error(f"get search result error: {e}")
+                title = webpage.get("title", "")
+                google_url_list.append(url)
+                google_title_list.append(title)
         except Exception as e:
             logging.error(f"get google error {e}")
 
-    logging.info(f"context list: {context_list} source_list: {source_list}")
-    prompt = PROMPT(model, context_list)
+        # step 2: get webpage content
+        tasks = [
+            async_crawler(url, title, tmp_content_set)
+            for url, title in zip(google_url_list, google_title_list)
+        ]
+        await asyncio.gather(*tasks)
+
+        # step 3: length limit
+        for url, content in tmp_content_set.items():
+            if len(content) > PAGE_LIMIT:
+                content = content[:PAGE_LIMIT] + "..."
+
+            if context_len + len(content) < TOTAL_WEB_LIMIT:
+                content_set[url] = content
+                context_len += len(content)
+            else:
+                break
+
+    logging.info(f"context set: {content_set}")
+    prompt = PROMPT(model, content_set)
 
     messages = [{"role": "system", "content": prompt}]
     ll = len(prompt)
@@ -324,7 +355,7 @@ async def completion(
         for temp_msg in temp_msg_pair:
             c += len(temp_msg["content"])
         ll += c
-        if ll > 3800:
+        if ll > TOTAL_WEB_LIMIT:
             break
         if len(temp_msg_pair) == 1:
             temp_msgs.append(temp_msg_pair[0])
@@ -340,9 +371,12 @@ async def completion(
     logging.info("Request (chat_id=%r, msg_id=%r): %s", chat_id, msg_id, messages)
 
     stream = await client.chat.completions.create(
-        model=model, messages=messages, stream=True,
+        model=model,
+        messages=messages,
+        stream=True,
     )
-    
+
+    full_answer = ""
     async for response in stream:
         logging.info(
             "Response (chat_id=%r, msg_id=%r): %s",
@@ -355,16 +389,20 @@ async def completion(
         if obj.finish_reason is not None:
             if obj.finish_reason == "length":
                 yield " [!Output truncated due to limit]"
-            if len(source_list) > 0:
-                source_msg = "\n【参考资料】\n"
-                for i, source in enumerate(source_list):
-                    source_msg += f"{i+1}. {source}\n"
-                yield source_msg
+            ref_list = re.findall(r"\[\^\d\]", full_answer)
+            if len(ref_list) > 0:
+                try:
+                    yield "\n\n【参考资料】\n"
+                    for idx, ref in enumerate(ref_list):
+                        yield f"{ref} {list(content_set.keys())[idx]}\n"
+                except Exception:
+                    traceback.print_exc()
             return
         if "role" in obj.delta:
             if obj.delta.role != "assistant":
                 raise ValueError("Role error")
         if obj.delta.content is not None:
+            full_answer += obj.delta.content
             yield obj.delta.content
 
 
@@ -596,11 +634,11 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update.effective_chat.id != update.message.from_user.id
         ):  # if not in private chat, do not send hint
             return
-        await send_message(
-            update.effective_chat.id,
-            "Please start a new conversation with ! or reply to a bot message",
-            update.message.message_id,
-        )
+        # await send_message(
+        #     update.effective_chat.id,
+        #     "Please start a new conversation with ! or reply to a bot message",
+        #     update.message.message_id,
+        # )
     db[repr((chat_id, msg_id))] = (False, text, reply_to_id, model)
 
     chat_history, model = construct_chat_history(chat_id, msg_id)

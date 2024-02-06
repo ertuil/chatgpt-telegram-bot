@@ -1,4 +1,5 @@
 FROM python:3.11
 WORKDIR /app
+ADD requirements.txt /app
+RUN pip install -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt
 ADD . /app
-RUN pip install -r requirements.txt
