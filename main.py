@@ -321,10 +321,10 @@ async def completion(
 
     content_set: Dict[str, str] = {}
     tmp_content_set: Dict[str, str] = {}
+    google_url_list: List[str] = []
+    google_title_list: List[str] = []
     if GOOGLE_API_KEY is not None and GOOGLE_CSE_ID is not None:
         context_len = 0
-        google_url_list: List[str] = []
-        google_title_list: List[str] = []
 
         # step 1: search google
         try:
@@ -426,17 +426,17 @@ async def completion(
         if obj.finish_reason is not None:
             if obj.finish_reason == "length":
                 yield " [!Output truncated due to limit]"
-            full_answer.replace("^]", "]")
+            full_answer = full_answer.replace("^]", "]")
             ref_list = re.findall(r"\[\^\d\]", full_answer)
             if len(ref_list) > 0:
-                try:
-                    yield "\n\n【参考资料】\n"
-                    for idx, ref in enumerate(ref_list):
+                yield "\n\n【参考资料】\n"
+                for idx, ref in enumerate(ref_list):
+                    try:
                         dref = ref.replace("]", "").replace("[", "").replace("^", "").strip()
                         dref = int(dref) - 1
-                        yield f"{ref} {list(content_set.keys())[dref]}\n"
-                except Exception:
-                    traceback.print_exc()
+                        yield f"{ref} {google_title_list[dref]} {google_url_list[dref]}\n"
+                    except Exception:
+                        traceback.print_exc()
             return
         if "role" in obj.delta:
             if obj.delta.role != "assistant":
