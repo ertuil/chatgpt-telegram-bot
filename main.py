@@ -434,7 +434,7 @@ async def completion(
                     for idx, ref in enumerate(ref_list):
                         dref = ref.replace("]", "").replace("[", "").replace("^", "").strip()
                         dref = int(dref) - 1
-                        yield f"{ref} {list(content_set.keys())[idx]}\n"
+                        yield f"{ref} {list(content_set.keys())[dref]}\n"
                 except Exception:
                     traceback.print_exc()
             return
