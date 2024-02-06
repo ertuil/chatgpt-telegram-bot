@@ -2,7 +2,7 @@ version: '3'
 
 services:
     bot:
-        image: chatgpt-telegram-bot
+        image: ghcr.io/ertuil/chatgpt-telegram-bot:latest
         command: python main.py
         restart: always
         environment:
