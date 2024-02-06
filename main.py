@@ -8,7 +8,7 @@ import json
 import traceback
 from typing import Dict, List
 import openai
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, OpenAI
 import requests
 from telegram import Update
 from telegram.ext import (
@@ -35,6 +35,7 @@ GOOGLE_CSE_ID = os.environ.get("GOOGLE_CSE_ID")
 TimeoutSetting = httpx.Timeout(15.0, read=15.0, write=15.0, connect=5.0)
 
 client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"), timeout=TimeoutSetting)
+sclient = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"), timeout=TimeoutSetting)
 
 
 TELEGRAM_LENGTH_LIMIT = 4096
@@ -53,9 +54,10 @@ def google_search(search_term, **kwargs):
     if GOOGLE_API_KEY is None or GOOGLE_CSE_ID is None:
         logging.error("google search api key or cse id is not set")
         return []
+    logging.info(f"google search: {search_term}")
     service = build("customsearch", "v1", developerKey=GOOGLE_API_KEY)
-    res = service.cse().list(q=search_term, cx=GOOGLE_CSE_ID, **kwargs).execute()
     try:
+        res = service.cse().list(q=search_term, cx=GOOGLE_CSE_ID, **kwargs).execute()
         result = []
         items = res["items"]
         for item in items:
@@ -68,6 +70,7 @@ def google_search(search_term, **kwargs):
             result.append(elem)
         return result
     except Exception as e:
+        traceback.print_exc()
         logging.error(f"goole search error: {e}")
         return []
 
@@ -99,18 +102,39 @@ async def async_crawler(url: str, title: str, content_set: Dict[str, str]):
 
 
 def is_chinese(string):
-    """
-    检查整个字符串是否包含中文
-    :param string: 需要检查的字符串
-    :return: bool
-    """
     for ch in string:
-        if u'\u4e00' <= ch <= u'\u9fff':
+        if "\u4e00" <= ch <= "\u9fff":
             return True
- 
     return False
 
-def PROMPT(model, context_set: Dict[str, str] = [], language = "English"):
+
+def get_query_question(query: str):
+    if len(query) < 15:
+        return query
+
+    model = DEFAULT_MODEL
+    prompt = f"""Conclude a concise Google Search question of the following within 15 words:
+
+{query}
+"""
+    if is_chinese(query):
+        prompt += "请用简体中文回复"
+    message = [{"role": "system", "content": prompt}]
+
+    resp = sclient.chat.completions.create(
+        model=model,
+        messages=message,
+    )
+    try:
+        query = resp.choices[0].message.content
+        query = query.strip().replace("\n", "").replace('"', "")
+    except Exception as e:
+        logging.error(f"get_query_question error: {e}")
+    logging.info(f"Summary question: {query}")
+    return query
+
+
+def PROMPT(model, context_set: Dict[str, str] = [], language="English"):
 
     if len(context_set) == 0:
         s = "You are ChatGPT Telegram bot. ChatGPT is a large language model trained by OpenAI. Answer as concisely as possible. Knowledge cutoff: Sep 2021. Current Beijing Time: {current_time}"
@@ -126,7 +150,7 @@ Reply in {reply_language} language.
 """
         websearch_list = []
         for idx, (url, content) in enumerate(context_set.items()):
-            item = f"[{idx}] url: {url}  {content}"
+            item = f"[{idx+1}] url: {url}  {content}"
             websearch_list.append(item)
         web_results = "\n".join(websearch_list)
         s = s.replace("{web_results}", web_results)
@@ -309,7 +333,8 @@ async def completion(
 
         # step 1: search google
         try:
-            result = google_search(last_question)
+            google_question = get_query_question(last_question)
+            result = google_search(google_question)
             for webpage in result[
                 : min(len(result), TOTAL_WEB_LIMIT // PAGE_LIMIT + 2)
             ]:
@@ -392,12 +417,12 @@ async def completion(
 
     full_answer = ""
     async for response in stream:
-        logging.info(
-            "Response (chat_id=%r, msg_id=%r): %s",
-            chat_id,
-            msg_id,
-            response,
-        )
+        # logging.info(
+        #     "Response (chat_id=%r, msg_id=%r): %s",
+        #     chat_id,
+        #     msg_id,
+        #     response,
+        # )
 
         obj = response.choices[0]
         if obj.finish_reason is not None:
