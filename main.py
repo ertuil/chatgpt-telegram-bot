@@ -668,7 +668,11 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_to_id = reply_to_message.message_id
         await pending_reply_manager.wait_for((chat_id, reply_to_id))
     elif text.startswith("!") or text.startswith("！"):  # new message
-        text = text[1:]
+        if text.startswith("!!") or text.startswith("！！"):
+            text = text[2:]
+            model = "gpt-4-turbo"
+        else:
+            text = text[1:]
     else:  # not reply or new message to bot
         if (
             update.effective_chat.id != update.message.from_user.id
