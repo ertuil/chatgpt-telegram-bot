@@ -41,7 +41,7 @@ sclient = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"), timeout=TimeoutSettin
 TELEGRAM_LENGTH_LIMIT = 4096
 TELEGRAM_MIN_INTERVAL = 3
 PAGE_LIMIT = 600
-TOTAL_WEB_LIMIT = 3200
+TOTAL_WEB_LIMIT = 4000
 OPENAI_MAX_RETRY = 3
 OPENAI_RETRY_INTERVAL = 10
 FIRST_BATCH_DELAY = 1
@@ -111,9 +111,15 @@ def is_chinese(string):
 def get_query_question(query_list: List[str]):
     if len(query_list) == 1 and len(query_list[0]) < 15:
         return query_list[0]
+    
+    current_question = query_list[-1]
+    history_question = query_list[:-1] if len(query_list) > 1 else []
 
-    query_msg = "\n".join(query_list)
     model = DEFAULT_MODEL
+    query_msg = f"current question: {current_question}"
+    if len(history_question) > 0:
+        history_msg = "history questions: " + "\t".join(history_question)
+        query_msg = history_msg + "\n" + query_msg
     prompt = f"""Conclude a concise Google Search question of the following within 15 words:
 
 {query_msg}
@@ -148,7 +154,7 @@ def PROMPT(model, context_set: Dict[str, str] = [], language="English"):
 {web_results}
 Current Beijing date: {current_time}
 
-Instructions: You are ChatGPT Telegram bot, trained by OpenAI. Answer as concisely as possible. You can use the provided web search results if you do not know the answer. Make sure to cite results using [^[index]] (e.g. [^1] [^2]) notation after the reference.
+Instructions: You are ChatGPT Telegram bot, trained by OpenAI. Answer as concisely as possible. You can use the provided web search results if you do not know the answer. Make sure to cite results using [^index] (e.g. [^1] [^2]) notation after the reference.
 Reply in {reply_language} language.
 """
         websearch_list = []
@@ -164,6 +170,8 @@ Reply in {reply_language} language.
             "%Y-%m-%d %H:%M:%S"
         ),
     )
+
+    s = s.replace("{reply_language}", language)
     return s
 
 
@@ -330,6 +338,7 @@ async def completion(
         try:
             question_list = [ c for idx, c in enumerate(chat_history) if idx % 2 == 0]
             google_question = get_query_question(question_list)
+            yield f"【谷歌搜索】 {google_question}\n"
             result = google_search(google_question)
             for webpage in result[
                 : min(len(result), TOTAL_WEB_LIMIT // PAGE_LIMIT + 2)
@@ -412,6 +421,8 @@ async def completion(
         messages=messages,
         stream=True,
     )
+
+    yield "【开始回答】"
 
     full_answer = ""
     async for response in stream:
@@ -670,7 +681,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text.startswith("!") or text.startswith("！"):  # new message
         if text.startswith("!!") or text.startswith("！！"):
             text = text[2:]
-            model = "gpt-4-turbo"
+            model = "gpt-4-turbo-preview"
         else:
             text = text[1:]
     else:  # not reply or new message to bot
