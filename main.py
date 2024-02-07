@@ -40,8 +40,8 @@ sclient = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"), timeout=TimeoutSettin
 
 TELEGRAM_LENGTH_LIMIT = 4096
 TELEGRAM_MIN_INTERVAL = 3
-PAGE_LIMIT = 600
-TOTAL_WEB_LIMIT = 4000
+PAGE_LIMIT = 1500
+TOTAL_WEB_LIMIT = 8000
 OPENAI_MAX_RETRY = 3
 OPENAI_RETRY_INTERVAL = 10
 FIRST_BATCH_DELAY = 1
@@ -92,6 +92,8 @@ async def async_crawler(url: str, title: str, content_set: Dict[str, str]):
                 ["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "tr"]
             ):
                 text = elem.get_text(strip=True, separator=" ")
+                if len(text) <= 6:
+                    continue
                 context_para.append(text)
 
             article_msg = " ".join(context_para)
