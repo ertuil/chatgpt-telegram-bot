@@ -80,7 +80,9 @@ async def async_crawler(url: str, title: str, content_set: Dict[str, str]):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.67",
         "referer": "https://www.google.com/",
     }
-    async with httpx.AsyncClient(headers=headers, timeout=TimeoutSetting, follow_redirects=True) as client:
+    async with httpx.AsyncClient(
+        headers=headers, timeout=TimeoutSetting, follow_redirects=True
+    ) as client:
         try:
             response = await client.get(url)
             # 处理响应数据
@@ -113,7 +115,7 @@ def is_chinese(string):
 def get_query_question(query_list: List[str]):
     if len(query_list) == 1 and len(query_list[0]) < 15:
         return query_list[0]
-    
+
     current_question = query_list[-1]
     history_question = query_list[:-1] if len(query_list) > 1 else []
 
@@ -338,7 +340,7 @@ async def completion(
 
         # step 1: search google
         try:
-            question_list = [ c for idx, c in enumerate(chat_history) if idx % 2 == 0]
+            question_list = [c for idx, c in enumerate(chat_history) if idx % 2 == 0]
             google_question = get_query_question(question_list)
             yield f"【谷歌搜索】 {google_question}\n"
             result = google_search(google_question)
@@ -445,7 +447,12 @@ async def completion(
                 yield "\n\n【参考资料】\n"
                 for idx, ref in enumerate(ref_list):
                     try:
-                        dref = ref.replace("]", "").replace("[", "").replace("^", "").strip()
+                        dref = (
+                            ref.replace("]", "")
+                            .replace("[", "")
+                            .replace("^", "")
+                            .strip()
+                        )
                         dref = int(dref) - 1
                         yield f"{ref} {google_title_list[dref]} {google_url_list[dref]}\n"
                     except Exception:
