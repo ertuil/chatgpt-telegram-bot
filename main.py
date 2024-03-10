@@ -506,7 +506,7 @@ async def completion(
         for temp_msg in temp_msg_pair:
             c += len(temp_msg["content"])
         ll += c
-        if ll > TOTAL_WEB_LIMIT:
+        if ll > TOTAL_WEB_LIMIT and len(temp_msgs) > 0:
             break
         if len(temp_msg_pair) == 1:
             temp_msgs.append(temp_msg_pair[0])
