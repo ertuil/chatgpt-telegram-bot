@@ -92,7 +92,11 @@ def google_search(search_term, **kwargs) -> List[Dict[str, str]]:
 
 
 def is_valid_url(url):
-    url_list = re.findall("https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+", url)
+
+    regex = r"(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))"
+    url_list = re.findall(regex, url)
+    url_list =  [x[0] for x in url_list]
+
     ret_list = []
     for url in url_list:
         try:
