@@ -5,8 +5,9 @@ import shelve
 import datetime
 import time
 import json
+from urllib.parse import urlparse
 import traceback
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import openai
 from openai import AsyncOpenAI, OpenAI
 import requests
@@ -38,15 +39,6 @@ TimeoutSetting = httpx.Timeout(15.0, read=15.0, write=15.0, connect=5.0)
 client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"), timeout=TimeoutSetting)
 sclient = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"), timeout=TimeoutSetting)
 
-if os.environ.get("ANTHROPIC_API_KEY") is not None:
-    aapi_key = os.environ.get("ANTHROPIC_API_KEY")
-    aclient = anthropic.Anthropic(
-        # defaults to os.environ.get("ANTHROPIC_API_KEY")
-        api_key=aapi_key,
-    )
-else:
-    aclient = None
-
 TELEGRAM_LENGTH_LIMIT = 4096
 TELEGRAM_MIN_INTERVAL = 3
 PAGE_LIMIT = 1500
@@ -57,6 +49,19 @@ FIRST_BATCH_DELAY = 1
 
 telegram_last_timestamp = None
 telegram_rate_limit_lock = asyncio.Lock()
+
+if os.environ.get("ANTHROPIC_API_KEY") is not None:
+    logging.info("enabling anthropic claude 3")
+    aapi_key = os.environ.get("ANTHROPIC_API_KEY")
+    aclient = anthropic.AsyncAnthropic(
+        # defaults to os.environ.get("ANTHROPIC_API_KEY")
+        api_key=aapi_key,
+        max_retries=OPENAI_MAX_RETRY,
+        timeout=15,
+    )
+else:
+    logging.info("anthropic claude 3 is not enabled")
+    aclient = None
 
 
 def google_search(search_term, **kwargs) -> List[Dict[str, str]]:
@@ -86,6 +91,11 @@ def google_search(search_term, **kwargs) -> List[Dict[str, str]]:
         return []
 
 
+def is_valid_url(url):
+    url_list = re.findall("https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+", url)
+    return url_list
+
+
 async def async_crawler(search_dict: Dict[str, str]) -> Optional[List[str]]:
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.67",
@@ -106,15 +116,49 @@ async def async_crawler(search_dict: Dict[str, str]) -> Optional[List[str]]:
 
             soup = BeautifulSoup(response.text, "html.parser")
             for elem in soup.find_all(
-                ["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "tr"]
+                ["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "tr", "article"]
             ):
                 text = elem.get_text(strip=True, separator=" ")
-                if len(text) <= 6:
+                if len(text) <= 10:
                     continue
                 context_para.append(text)
 
             article_msg = " ".join(context_para)
             return [url, title, snippet, article_msg]
+        except Exception as e:
+            logging.error(f"get {url} error: {str(e)}")
+            return None
+
+
+async def async_url(url: str) -> Tuple[str, str]:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.67",
+        "referer": "https://www.google.com/",
+    }
+    async with httpx.AsyncClient(
+        headers=headers, timeout=TimeoutSetting, follow_redirects=True
+    ) as client:
+        try:
+
+            response = await client.get(url)
+            # 处理响应数据
+            try:
+                soup = BeautifulSoup(response.text, "html.parser")
+                title = soup.title.text
+
+                msg = f"Title: {title}\tContent: "
+                for elem in soup.find_all(
+                    ["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "tr", "article"]
+                ):
+                    text = elem.get_text(strip=True, separator=" ")
+                    if len(text) <= 6:
+                        continue
+                    msg += text
+                    if len(msg) > TOTAL_WEB_LIMIT * 0.9:
+                        break
+            except Exception:
+                title = ""
+            return title, msg
         except Exception as e:
             logging.error(f"get {url} error: {str(e)}")
             return None
@@ -163,18 +207,28 @@ def get_query_question(query_list: List[str]):
 
 
 def PROMPT(model, context_set: List[List[str]] = [], language="English"):
+
+    mode_str = "ChatGPT"
+    mode_company = "OpenAI"
     if "claude-3" in model:
-        s = "You are Claude 3 Telegram bot. Claude is a large language model trained by Anthropic. Answer as concisely as possible. Knowledge cutoff: Feb 2024. Current Beijing Time: {current_time}"
-    elif len(context_set) == 0:
-        s = "You are ChatGPT Telegram bot. ChatGPT is a large language model trained by OpenAI. Answer as concisely as possible. Knowledge cutoff: Sep 2021. Current Beijing Time: {current_time}"
+        mode_str = "Claude 3"
+        mode_company = "Anthropic"
+
+    if len(context_set) == 0:
+        s = "You are {mode_str} Telegram bot. {mode_str} is a large language model trained by {mode_company}. Answer as concisely as possible. Knowledge cutoff: Sep 2021. Current Beijing Time: {current_time}"
 
     else:
+        mode_str = "GPT-4"
+        mode_company = "OpenAI"
+        if "claude-3" in model:
+            mode_str = "Claude 3"
+            mode_company = "Anthropic"
         s = """Web search results:
 
 {web_results}
 Current Beijing date: {current_time}
 
-Instructions: You are ChatGPT Telegram bot, trained by OpenAI. Answer as concisely as possible. You can use the provided web search results if you do not know the answer. Make sure to cite results using [^index] (e.g. [^1] [^2]) notation after the reference.
+Instructions: You are {mode_str} Telegram bot, trained by {mode_company}. Answer as concisely as possible. You can use the provided web search results if you do not know the answer. Make sure to cite results using [^index] (e.g. [^1] [^2]) notation after the reference.
 Reply in {reply_language} language.
 """
         websearch_list = []
@@ -194,6 +248,8 @@ Reply in {reply_language} language.
     )
 
     s = s.replace("{reply_language}", language)
+    s = s.replace("{mode_str}", mode_str)
+    s = s.replace("{mode_company}", mode_company)
     return s
 
 
@@ -355,35 +411,56 @@ async def completion(
     result: List[Dict[str, str]] = []
     if GOOGLE_API_KEY is not None and GOOGLE_CSE_ID is not None and search:
         context_len = 0
-
-        # step 1: search google
         try:
-            question_list = [c for idx, c in enumerate(chat_history) if idx % 2 == 0]
-            google_question = get_query_question(question_list)
-            yield f"【谷歌搜索】 {google_question}\n"
-            result = google_search(google_question)
-        except Exception as e:
-            logging.error(f"get google error {e}")
+            maybe_url_list = is_valid_url(last_question)
+            print(maybe_url_list)
+            if len(maybe_url_list) > 0:
+                maybe_url = maybe_url_list[0]
+                is_url = True
+            else:
+                maybe_url = last_question
+                is_url = True
+        except Exception:
+            is_url = False
 
-        # step 2: get webpage content
-        tasks = [async_crawler(search_dict) for search_dict in result]
-        crawler_results = await asyncio.gather(*tasks)
-        tmp_content_set = [elem for elem in crawler_results if elem is not None]
-
-        # step 3: length limit
-        for elem in tmp_content_set:
-            url, title, snippet, content = elem[0], elem[1], elem[2], elem[3]
+        if is_url:
+            ## get url
+            logging.info("get url: %s", maybe_url)
+            title, content = await async_url(maybe_url)
+            content = content[: min(len(content), int(TOTAL_WEB_LIMIT * 0.9))]
+            content_set.append([maybe_url, title, "", content])
+        else:
+            ## start Google Search
+            # step 1: search google
             try:
-                if len(content) > PAGE_LIMIT:
-                    content = content[:PAGE_LIMIT] + "..."
+                question_list = [
+                    c for idx, c in enumerate(chat_history) if idx % 2 == 0
+                ]
+                google_question = question_list[-1]
+                yield f"【谷歌搜索】 {google_question}\n"
+                result = google_search(google_question)
+            except Exception as e:
+                logging.error(f"get google error {e}")
 
-                if context_len + len(content) < TOTAL_WEB_LIMIT:
-                    content_set.append([url, title, snippet, content])
-                    context_len += len(content)
-                else:
-                    break
-            except Exception:
-                traceback.print_exc()
+            # step 2: get webpage content
+            tasks = [async_crawler(search_dict) for search_dict in result]
+            crawler_results = await asyncio.gather(*tasks)
+            tmp_content_set = [elem for elem in crawler_results if elem is not None]
+
+            # step 3: length limit
+            for elem in tmp_content_set:
+                url, title, snippet, content = elem[0], elem[1], elem[2], elem[3]
+                try:
+                    if len(content) > PAGE_LIMIT:
+                        content = content[:PAGE_LIMIT] + "..."
+
+                    if context_len + len(content) < TOTAL_WEB_LIMIT:
+                        content_set.append([url, title, snippet, content])
+                        context_len += len(content)
+                    else:
+                        break
+                except Exception:
+                    traceback.print_exc()
 
     logging.info(f"context set: {content_set}")
     language = "简体中文" if is_chinese(last_question) else "English"
@@ -391,8 +468,8 @@ async def completion(
     if is_chinese(last_question):
         prompt += "请用简体中文回复"
 
-    if "claude" in model:
-        messages = [{"role": "user", "content": prompt}]
+    if "claude-3" in model and aclient is not None:
+        messages = []
     else:
         messages = [{"role": "system", "content": prompt}]
     ll = len(prompt)
@@ -432,42 +509,39 @@ async def completion(
     #     messages.append({"role": roles[role_id], "content": msg})
     #     role_id = 1 - role_id
 
-    logging.info("Request (model=%s,chat_id=%r, msg_id=%r): %s", model, chat_id, msg_id, messages)
+    logging.info(
+        "Request (model=%s,chat_id=%r, msg_id=%r): %s", model, chat_id, msg_id, messages
+    )
 
-    if "claude-3" in model:
+    if "claude-3" in model and aclient is not None:
         stream = await aclient.messages.create(
-            model=model, 
-            messages=messages, 
-            stream=True, 
-            max_tokens=4096
+            model=model, messages=messages, stream=True, max_tokens=4096, system=prompt
         )
         async for event in stream:
-            logging.info('Response (chat_id=%r, msg_id=%r): %s', chat_id, msg_id, event)
-            if event.type == 'message_start':
-                assert event.message.role == 'assistant'
+            logging.info("Response (chat_id=%r, msg_id=%r): %s", chat_id, msg_id, event)
+            if event.type == "message_start":
+                assert event.message.role == "assistant"
                 assert event.message.content == []
                 assert event.message.stop_reason is None
-            elif event.type == 'content_block_delta':
+            elif event.type == "content_block_delta":
                 assert event.index == 0
-                assert event.delta.type == 'text_delta'
+                assert event.delta.type == "text_delta"
                 yield event.delta.text
-            elif event.type == 'content_block_start':
+            elif event.type == "content_block_start":
                 assert event.index == 0
-                assert event.content_block.text == ''
-            elif event.type == 'content_block_stop':
+                assert event.content_block.text == ""
+            elif event.type == "content_block_stop":
                 assert event.index == 0
-            elif event.type == 'message_delta':
+            elif event.type == "message_delta":
                 stop_reason = event.delta.stop_reason
                 if stop_reason is not None:
-                    if stop_reason == 'end_turn':
+                    if stop_reason == "end_turn":
                         pass
                     else:
                         yield f'\n\n[!] Error: stop_reason="{stop_reason}"'
     else:
         stream = await client.chat.completions.create(
-            model=model,
-            messages=messages,
-            stream=True,
+            model=model, messages=messages, stream=True
         )
 
         yield "【开始回答】"
@@ -545,6 +619,26 @@ def construct_chat_history(chat_id, msg_id):
         )
         return None, None
     return messages[::-1], model
+
+
+async def get_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_whitelist(update.effective_chat.id):
+        await send_message(
+            update.effective_chat.id, "Not in the whitelist", update.message.message_id
+        )
+        return
+
+    mode_msg = """Available modes:
+- ! or ！: Use GPT-3.5 Turbo
+- !! or ！！: Use GPT-4 Turbo
+- g! or g！: Use GPT-4 Turbo with Google search
+"""
+
+    if aclient is not None:
+        mode_msg += "- c! or c！: Use Claude 3 Opus\n"
+        mode_msg += "- cs! or cs！: Use Claude 3 Sonnet\n"
+        mode_msg += "- cg! or cg！: Use Claude 3 Opus with Google search\n"
+    await send_message(update.effective_chat.id, mode_msg, update.message.message_id)
 
 
 @only_admin
@@ -738,7 +832,10 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_to_id = reply_to_message.message_id
         await pending_reply_manager.wait_for((chat_id, reply_to_id))
     elif (
-        text.startswith("!") or text.startswith("！") or text.startswith("g")
+        text.startswith("!")
+        or text.startswith("！")
+        or text.startswith("g")
+        or text.startswith("c")
     ):  # new message
         if text.startswith("!!") or text.startswith("！！"):
             text = text[2:]
@@ -750,6 +847,13 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif text.startswith("c!") or text.startswith("c！"):
             text = text[2:]
             model = "claude-3-opus-20240229"
+        elif text.startswith("cs!") or text.startswith("cs！"):
+            text = text[3:]
+            model = "claude-3-sonnet-20240229"
+        elif text.startswith("cg!") or text.startswith("cg！"):
+            text = text[3:]
+            model = "claude-3-opus-20240229"
+            search = True
         else:
             text = text[1:]
     else:  # not reply or new message to bot
@@ -763,7 +867,6 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         #     update.message.message_id,
         # )
     db[repr((chat_id, msg_id))] = (False, text, reply_to_id, model)
-
     chat_history, model = construct_chat_history(chat_id, msg_id)
     if chat_history is None:
         await send_message(
@@ -869,6 +972,7 @@ if __name__ == "__main__":
             MessageHandler(filters.TEXT & (~filters.COMMAND), reply_handler)
         )
         application.add_handler(CommandHandler("ping", ping))
+        application.add_handler(CommandHandler("mode", get_mode))
         application.add_handler(CommandHandler("add_whitelist", add_whitelist_handler))
         application.add_handler(CommandHandler("del_whitelist", del_whitelist_handler))
         application.add_handler(CommandHandler("get_whitelist", get_whitelist_handler))
