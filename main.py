@@ -527,6 +527,7 @@ async def completion(
         stream = await aclient.messages.create(
             model=model, messages=messages, stream=True, max_tokens=4096, system=prompt
         )
+        full_answer = ""
         async for event in stream:
             logging.info("Response (chat_id=%r, msg_id=%r): %s", chat_id, msg_id, event)
             if event.type == "message_start":
@@ -536,6 +537,7 @@ async def completion(
             elif event.type == "content_block_delta":
                 assert event.index == 0
                 assert event.delta.type == "text_delta"
+                full_answer += event.delta.text
                 yield event.delta.text
             elif event.type == "content_block_start":
                 assert event.index == 0
@@ -546,7 +548,27 @@ async def completion(
                 stop_reason = event.delta.stop_reason
                 if stop_reason is not None:
                     if stop_reason == "end_turn":
-                        pass
+                        full_answer = full_answer.replace("^]", "]")
+                        ref_list = re.findall(r"\[\^\d\]", full_answer)
+                        if len(ref_list) > 0:
+                            yield "\n\n【参考资料】\n"
+                            dref_list = []
+                            for idx, ref in enumerate(ref_list):
+                                try:
+                                    dref = (
+                                        ref.replace("]", "")
+                                        .replace("[", "")
+                                        .replace("^", "")
+                                        .strip()
+                                    )
+                                    dref = int(dref) - 1
+                                    dref_list.append((ref, dref))
+                                except Exception:
+                                    traceback.print_exc()
+                            dref_list = list(set(dref_list))
+                            dref_list.sort(key=lambda x: x[0])
+                            for ref, dref in dref_list:
+                                yield f"{ref} {content_set[dref][1]} {content_set[dref][0]}\n"
                     else:
                         yield f'\n\n[!] Error: stop_reason="{stop_reason}"'
     else:
