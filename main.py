@@ -93,7 +93,14 @@ def google_search(search_term, **kwargs) -> List[Dict[str, str]]:
 
 def is_valid_url(url):
     url_list = re.findall("https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+", url)
-    return url_list
+    ret_list = []
+    for url in url_list:
+        try:
+            parsed_uri = urlparse(url)
+        except ValueError:
+            continue
+        ret_list.append(url)
+    return ret_list
 
 
 async def async_crawler(search_dict: Dict[str, str]) -> Optional[List[str]]:
@@ -419,7 +426,7 @@ async def completion(
                 is_url = True
             else:
                 maybe_url = last_question
-                is_url = True
+                is_url = False
         except Exception:
             is_url = False
 
