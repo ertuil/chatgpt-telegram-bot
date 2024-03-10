@@ -426,9 +426,12 @@ async def completion(
         if is_url:
             ## get url
             logging.info("get url: %s", maybe_url)
-            title, content = await async_url(maybe_url)
-            content = content[: min(len(content), int(TOTAL_WEB_LIMIT * 0.9))]
-            content_set.append([maybe_url, title, "", content])
+            try:
+                title, content = await async_url(maybe_url)
+                content = content[: min(len(content), int(TOTAL_WEB_LIMIT * 0.9))]
+                content_set.append([maybe_url, title, "", content])
+            except Exception as e:
+                logging.error(f"get url error {e}")
         else:
             ## start Google Search
             # step 1: search google
