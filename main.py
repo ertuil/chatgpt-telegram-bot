@@ -95,7 +95,7 @@ def is_valid_url(url):
 
     regex = r"(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))"
     url_list = re.findall(regex, url)
-    url_list =  [x[0] for x in url_list]
+    url_list = [x[0] for x in url_list]
 
     ret_list = []
     for url in url_list:
@@ -528,6 +528,13 @@ async def completion(
     )
 
     if "claude-3" in model and aclient is not None:
+        if "$$$" in last_question:
+            q_s = last_question.split("$$$")
+            if len(q_s) >= 2:
+                prompt = q_s[0]
+                query = q_s[1]
+                messages[-1]["content"] = query
+                logging.info(f"claude 3 prompt: {prompt} {messages}")
         stream = await aclient.messages.create(
             model=model, messages=messages, stream=True, max_tokens=4096, system=prompt
         )
