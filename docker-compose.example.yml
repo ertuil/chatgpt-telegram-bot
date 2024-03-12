@@ -8,6 +8,7 @@ services:
         volumes:
           - ./data:/app/data
         environment:
+          - OFFICIAL_OPENAI_API_KEY=
           - OPENAI_API_KEY=
           - TELEGRAM_BOT_TOKEN=
           - TELEGRAM_ADMIN_ID=
@@ -15,3 +16,4 @@ services:
           - GOOGLE_API_KEY=
           - GOOGLE_CSE_ID=
           - ANTHROPIC_API_KEY=
+          - OPENAI_BASE_URL=

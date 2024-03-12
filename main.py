@@ -34,10 +34,17 @@ DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "gpt-3.5-turbo")
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 GOOGLE_CSE_ID = os.environ.get("GOOGLE_CSE_ID")
 
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", None)
+OFFICIAL_OPENAI_BASE_URL = "https://api.openai.com/v1"
+CLAUDE3_USE_OPENAI_URL = True if OPENAI_BASE_URL is not None and  OPENAI_BASE_URL == "https://api.gptapi.us/v1" else False
+
 TimeoutSetting = httpx.Timeout(15.0, read=15.0, write=15.0, connect=5.0)
 
 client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"), timeout=TimeoutSetting)
 sclient = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"), timeout=TimeoutSetting)
+if OPENAI_BASE_URL is not None:
+    client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"), timeout=TimeoutSetting, base_url=OPENAI_BASE_URL)
+    sclient = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"), timeout=TimeoutSetting, base_url=OPENAI_BASE_URL)
 
 TELEGRAM_LENGTH_LIMIT = 4096
 TELEGRAM_MIN_INTERVAL = 3
@@ -229,11 +236,6 @@ def PROMPT(model, context_set: List[List[str]] = [], language="English"):
         s = "You are {mode_str} Telegram bot. {mode_str} is a large language model trained by {mode_company}. Answer as concisely as possible. Knowledge cutoff: Sep 2021. Current Beijing Time: {current_time}"
 
     else:
-        mode_str = "GPT-4"
-        mode_company = "OpenAI"
-        if "claude-3" in model:
-            mode_str = "Claude 3"
-            mode_company = "Anthropic"
         s = """Web search results:
 
 {web_results}
@@ -424,7 +426,6 @@ async def completion(
         context_len = 0
         try:
             maybe_url_list = is_valid_url(last_question)
-            print(maybe_url_list)
             if len(maybe_url_list) > 0:
                 maybe_url = maybe_url_list[0]
                 is_url = True
@@ -482,7 +483,7 @@ async def completion(
     if is_chinese(last_question):
         prompt += "请用简体中文回复"
 
-    if "claude-3" in model and aclient is not None:
+    if "claude-3" in model and aclient is not None and not CLAUDE3_USE_OPENAI_URL:
         messages = []
     else:
         messages = [{"role": "system", "content": prompt}]
@@ -527,7 +528,12 @@ async def completion(
         "Request (model=%s,chat_id=%r, msg_id=%r): %s", model, chat_id, msg_id, messages
     )
 
-    if "claude-3" in model and aclient is not None:
+    if is_private():
+        private_mode_str = "隐私模式"
+    else:
+        private_mode_str = "便宜模式"
+
+    if "claude-3" in model and aclient is not None and not CLAUDE3_USE_OPENAI_URL:
         if "$$$" in last_question:
             q_s = last_question.split("$$$")
             if len(q_s) >= 2:
@@ -538,6 +544,7 @@ async def completion(
         stream = await aclient.messages.create(
             model=model, messages=messages, stream=True, max_tokens=4096, system=prompt
         )
+        yield f"【开始回答（{private_mode_str}）】"
         full_answer = ""
         async for event in stream:
             logging.info("Response (chat_id=%r, msg_id=%r): %s", chat_id, msg_id, event)
@@ -587,7 +594,7 @@ async def completion(
             model=model, messages=messages, stream=True
         )
 
-        yield "【开始回答】"
+        yield f"【开始回答（{private_mode_str}）】"
 
         full_answer = ""
         async for response in stream:
@@ -677,11 +684,69 @@ async def get_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
 - g! or g！: Use GPT-4 Turbo with Google search
 """
 
-    if aclient is not None:
+    if aclient is not None or CLAUDE3_USE_OPENAI_URL:
         mode_msg += "- c! or c！: Use Claude 3 Opus\n"
         mode_msg += "- cs! or cs！: Use Claude 3 Sonnet\n"
         mode_msg += "- cg! or cg！: Use Claude 3 Opus with Google search\n"
     await send_message(update.effective_chat.id, mode_msg, update.message.message_id)
+
+
+@only_whitelist
+async def enable_private(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    official_base_url = OFFICIAL_OPENAI_BASE_URL
+    api_key = os.environ.get("OFFICIAL_OPENAI_API_KEY", None)
+    if api_key is None:
+        api_key = os.environ.get("OPENAI_API_KEY", None)
+    if api_key is None:
+        await send_message(
+            update.effective_chat.id,
+            "OFFICIAL_OPENAI_API_KEY is not set",
+            update.message.message_id,
+        )
+        return
+    global sclient, client
+    sclient.api_key = api_key
+    sclient.base_url = official_base_url
+    client.api_key = api_key
+    client.base_url = official_base_url
+    global CLAUDE3_USE_OPENAI_URL
+    CLAUDE3_USE_OPENAI_URL = False
+    await send_message(
+        update.effective_chat.id,
+        "Private mode enabled",
+        update.message.message_id,
+    )
+
+
+@only_whitelist
+async def disable_private(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global sclient, client
+    sclient.api_key = os.environ.get("OPENAI_API_KEY")
+    sclient.base_url = OPENAI_BASE_URL if OPENAI_BASE_URL is not None else OFFICIAL_OPENAI_BASE_URL
+    client.api_key = os.environ.get("OPENAI_API_KEY")
+    client.base_url = OPENAI_BASE_URL if OPENAI_BASE_URL is not None else OFFICIAL_OPENAI_BASE_URL
+
+    if OPENAI_BASE_URL is not None and OPENAI_BASE_URL == "https://api.gptapi.us/v1":
+        global CLAUDE3_USE_OPENAI_URL
+        CLAUDE3_USE_OPENAI_URL = True
+    await send_message(
+        update.effective_chat.id,
+        "Private mode disabled",
+        update.message.message_id,
+    )
+
+
+async def get_private(update: Update, context: ContextTypes.DEFAULT_TYPE):    
+    private = "enabled" if "api.openai.com" in str(client.base_url) else "disabled"
+    await send_message(
+        update.effective_chat.id,
+        f"Private mode is {private}",
+        update.message.message_id,
+    )
+
+
+def is_private():
+    return "api.openai.com" in str(client.base_url)
 
 
 @only_admin
@@ -875,27 +940,34 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_to_id = reply_to_message.message_id
         await pending_reply_manager.wait_for((chat_id, reply_to_id))
     elif (
-        text.startswith("!")
-        or text.startswith("！")
-        or text.startswith("g")
-        or text.startswith("c")
+        text.startswith("!") or text.startswith("！")
+        or text.startswith("g!") or text.startswith("g！")
+        or text.startswith("c!") or text.startswith("c！")
+        or text.startswith("cs!") or text.startswith("cs！")
+        or text.startswith("cg!") or text.startswith("cg！")
     ):  # new message
         if text.startswith("!!") or text.startswith("！！"):
             text = text[2:]
-            model = "gpt-4-turbo-preview"
+            model = "gpt-4-0125-preview"
         elif text.startswith("g!") or text.startswith("g！"):
             text = text[2:]
-            model = "gpt-4-turbo-preview"
+            model = "gpt-4-0125-preview"
             search = True
         elif text.startswith("c!") or text.startswith("c！"):
             text = text[2:]
             model = "claude-3-opus-20240229"
+            if CLAUDE3_USE_OPENAI_URL:
+                model = "claude-3-opus"
         elif text.startswith("cs!") or text.startswith("cs！"):
             text = text[3:]
             model = "claude-3-sonnet-20240229"
+            if CLAUDE3_USE_OPENAI_URL:
+                model = "claude-3-sonnet"
         elif text.startswith("cg!") or text.startswith("cg！"):
             text = text[3:]
             model = "claude-3-opus-20240229"
+            if CLAUDE3_USE_OPENAI_URL:
+                model = "claude-3-opus"
             search = True
         else:
             text = text[1:]
@@ -979,6 +1051,10 @@ async def post_init(application):
             ("add_whitelist", "Add this group to whitelist (only admin)"),
             ("del_whitelist", "Delete this group from whitelist (only admin)"),
             ("get_whitelist", "List groups in whitelist (only admin)"),
+            ("mode", "Get enabled models"),
+            ("enable_private", "Enable private mode (隐私模式)"),
+            ("disable_private", "Disable private mode (便宜模式)"),
+            ("get_private", "Get private mode status"),
         ]
     )
 
@@ -1019,4 +1095,7 @@ if __name__ == "__main__":
         application.add_handler(CommandHandler("add_whitelist", add_whitelist_handler))
         application.add_handler(CommandHandler("del_whitelist", del_whitelist_handler))
         application.add_handler(CommandHandler("get_whitelist", get_whitelist_handler))
+        application.add_handler(CommandHandler("enable_private", enable_private))
+        application.add_handler(CommandHandler("disable_private", disable_private))
+        application.add_handler(CommandHandler("get_private", get_private))
         application.run_polling()
