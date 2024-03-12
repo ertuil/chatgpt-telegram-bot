@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import io
 import os
 import logging
 import shelve
@@ -10,8 +12,9 @@ import traceback
 from typing import Dict, List, Optional, Tuple
 import openai
 from openai import AsyncOpenAI, OpenAI
-import requests
-from telegram import Update
+from openai._types import NOT_GIVEN
+from base64 import b64decode
+from telegram import File, Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -19,6 +22,7 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
+from telegram.ext._application import BT
 import httpx
 from telegram.error import RetryAfter, NetworkError, BadRequest
 import re
@@ -36,15 +40,28 @@ GOOGLE_CSE_ID = os.environ.get("GOOGLE_CSE_ID")
 
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", None)
 OFFICIAL_OPENAI_BASE_URL = "https://api.openai.com/v1"
-CLAUDE3_USE_OPENAI_URL = True if OPENAI_BASE_URL is not None and  OPENAI_BASE_URL == "https://api.gptapi.us/v1" else False
+CLAUDE3_USE_OPENAI_URL = (
+    True
+    if OPENAI_BASE_URL is not None and OPENAI_BASE_URL == "https://api.gptapi.us/v1"
+    else False
+)
 
 TimeoutSetting = httpx.Timeout(15.0, read=15.0, write=15.0, connect=5.0)
+PictureTimeoutSetting = httpx.Timeout(60.0, read=60.0, write=60.0, connect=5.0)
 
 client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"), timeout=TimeoutSetting)
 sclient = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"), timeout=TimeoutSetting)
 if OPENAI_BASE_URL is not None:
-    client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"), timeout=TimeoutSetting, base_url=OPENAI_BASE_URL)
-    sclient = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"), timeout=TimeoutSetting, base_url=OPENAI_BASE_URL)
+    client = AsyncOpenAI(
+        api_key=os.environ.get("OPENAI_API_KEY"),
+        timeout=TimeoutSetting,
+        base_url=OPENAI_BASE_URL,
+    )
+    sclient = OpenAI(
+        api_key=os.environ.get("OPENAI_API_KEY"),
+        timeout=TimeoutSetting,
+        base_url=OPENAI_BASE_URL,
+    )
 
 TELEGRAM_LENGTH_LIMIT = 4096
 TELEGRAM_MIN_INTERVAL = 3
@@ -53,6 +70,7 @@ TOTAL_WEB_LIMIT = 8000
 OPENAI_MAX_RETRY = 3
 OPENAI_RETRY_INTERVAL = 10
 FIRST_BATCH_DELAY = 1
+VISION_MODEL = "gpt-4-vision-preview"
 
 telegram_last_timestamp = None
 telegram_rate_limit_lock = asyncio.Lock()
@@ -225,44 +243,39 @@ def get_query_question(query_list: List[str]):
 
 
 def PROMPT(model, context_set: List[List[str]] = [], language="English"):
-
+    current_time = (datetime.datetime.utcnow() + datetime.timedelta(hours=8)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
     mode_str = "ChatGPT"
     mode_company = "OpenAI"
     if "claude-3" in model:
         mode_str = "Claude 3"
         mode_company = "Anthropic"
 
-    if len(context_set) == 0:
-        s = "You are {mode_str} Telegram bot. {mode_str} is a large language model trained by {mode_company}. Answer as concisely as possible. Knowledge cutoff: Sep 2021. Current Beijing Time: {current_time}"
+    cut_off = "Dec. 2023"
+    if "gpt-3" in model:
+        cut_off = "Oct. 2021"
 
+    websearch_list = []
+    for idx, elem in enumerate(context_set):
+        url = elem[0]
+        content = elem[3]
+        item = f"[{idx+1}] url: {url}  {content}"
+        websearch_list.append(item)
+    web_results = "\n".join(websearch_list)
+
+    if len(context_set) == 0:
+        s = f"You are {mode_str} Telegram bot. {mode_str} is a large language model trained by {mode_company}. Answer as concisely as possible. Knowledge cutoff: {cut_off}. Current Beijing Time: {current_time}"
     else:
-        s = """Web search results:
+        s = f"""Web search results:
 
 {web_results}
 Current Beijing date: {current_time}
 
 Instructions: You are {mode_str} Telegram bot, trained by {mode_company}. Answer as concisely as possible. You can use the provided web search results if you do not know the answer. Make sure to cite results using [^index] (e.g. [^1] [^2]) notation after the reference.
-Reply in {reply_language} language.
+Reply in {language} language.
 """
-        websearch_list = []
-        for idx, elem in enumerate(context_set):
-            url = elem[0]
-            content = elem[3]
-            item = f"[{idx+1}] url: {url}  {content}"
-            websearch_list.append(item)
-        web_results = "\n".join(websearch_list)
-        s = s.replace("{web_results}", web_results)
 
-    s = s.replace(
-        "{current_time}",
-        (datetime.datetime.utcnow() + datetime.timedelta(hours=8)).strftime(
-            "%Y-%m-%d %H:%M:%S"
-        ),
-    )
-
-    s = s.replace("{reply_language}", language)
-    s = s.replace("{mode_str}", mode_str)
-    s = s.replace("{mode_company}", mode_company)
     return s
 
 
@@ -403,7 +416,12 @@ def only_whitelist(func):
 
 
 async def completion(
-    chat_history, model, chat_id, msg_id, search: bool = False
+    chat_history,
+    model,
+    chat_id,
+    msg_id,
+    search: bool = False,
+    image: bytes | None = None,
 ):  # chat_history = [user, ai, user, ai, ..., user]
     assert len(chat_history) % 2 == 1
 
@@ -497,7 +515,21 @@ async def completion(
     while idx < len(chat_history):
         temp_msg_pair = []
         if idx == len(chat_history) - 1:
-            temp_msg_pair.append({"role": roles[0], "content": chat_history[idx]})
+            if model == VISION_MODEL:
+                image_b64 = base64.b64encode(image).decode("ascii")
+                msg = {
+                    "role": roles[0],
+                    "content": [
+                        {"type": "text", "text": chat_history[idx]},
+                        {
+                            "type": "image_url",
+                            "image_url": f"data:image/jpeg;base64,{image_b64}",
+                        },
+                    ],
+                }
+                temp_msg_pair.append(msg)
+            else:
+                temp_msg_pair.append({"role": roles[0], "content": chat_history[idx]})
         else:
             temp_msg_pair.append({"role": roles[0], "content": chat_history[idx]})
             temp_msg_pair.append({"role": roles[1], "content": chat_history[idx + 1]})
@@ -590,9 +622,16 @@ async def completion(
                     else:
                         yield f'\n\n[!] Error: stop_reason="{stop_reason}"'
     else:
-        stream = await client.chat.completions.create(
-            model=model, messages=messages, stream=True
-        )
+        if model == VISION_MODEL:
+            client.timeout = PictureTimeoutSetting
+            stream = await client.chat.completions.create(
+                model=model, messages=messages, stream=True, max_tokens=4096
+            )
+            client.timeout = TimeoutSetting
+        else:
+            stream = await client.chat.completions.create(
+                model=model, messages=messages, stream=True
+            )
 
         yield f"【开始回答（{private_mode_str}）】"
 
@@ -682,6 +721,8 @@ async def get_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
 - ! or ！: Use GPT-3.5 Turbo
 - !! or ！！: Use GPT-4 Turbo
 - g! or g！: Use GPT-4 Turbo with Google search
+- p! or p！: Use Dall-e 3 (options -n -v -h -w)
+- v! or v！: Use GPT-4 Vision Preview
 """
 
     if aclient is not None or CLAUDE3_USE_OPENAI_URL:
@@ -722,9 +763,13 @@ async def enable_private(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def disable_private(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global sclient, client
     sclient.api_key = os.environ.get("OPENAI_API_KEY")
-    sclient.base_url = OPENAI_BASE_URL if OPENAI_BASE_URL is not None else OFFICIAL_OPENAI_BASE_URL
+    sclient.base_url = (
+        OPENAI_BASE_URL if OPENAI_BASE_URL is not None else OFFICIAL_OPENAI_BASE_URL
+    )
     client.api_key = os.environ.get("OPENAI_API_KEY")
-    client.base_url = OPENAI_BASE_URL if OPENAI_BASE_URL is not None else OFFICIAL_OPENAI_BASE_URL
+    client.base_url = (
+        OPENAI_BASE_URL if OPENAI_BASE_URL is not None else OFFICIAL_OPENAI_BASE_URL
+    )
 
     if OPENAI_BASE_URL is not None and OPENAI_BASE_URL == "https://api.gptapi.us/v1":
         global CLAUDE3_USE_OPENAI_URL
@@ -736,7 +781,7 @@ async def disable_private(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def get_private(update: Update, context: ContextTypes.DEFAULT_TYPE):    
+async def get_private(update: Update, context: ContextTypes.DEFAULT_TYPE):
     private = "enabled" if "api.openai.com" in str(client.base_url) else "disabled"
     await send_message(
         update.effective_chat.id,
@@ -922,6 +967,20 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sender_id = update.message.from_user.id
     msg_id = update.message.message_id
     text = update.message.text
+
+    try:
+        ## try to get images
+        l = len(update.message.photo)
+        p = update.message.photo[-1]
+        logging.info(f"[photo] get photo {p.file_size} {p.width}x{p.height}")
+        obj: File = await p.get_file()
+        image = await obj.download_as_bytearray()
+        image = bytes(image)
+        cap = update.message.caption
+        text = cap if cap is not None and text is None else text
+    except Exception:
+        image = None
+
     logging.info(
         "New message: chat_id=%r, sender_id=%r, msg_id=%r, text=%r",
         chat_id,
@@ -940,11 +999,20 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_to_id = reply_to_message.message_id
         await pending_reply_manager.wait_for((chat_id, reply_to_id))
     elif (
-        text.startswith("!") or text.startswith("！")
-        or text.startswith("g!") or text.startswith("g！")
-        or text.startswith("c!") or text.startswith("c！")
-        or text.startswith("cs!") or text.startswith("cs！")
-        or text.startswith("cg!") or text.startswith("cg！")
+        text.startswith("!")
+        or text.startswith("！")
+        or text.startswith("g!")
+        or text.startswith("g！")
+        or text.startswith("c!")
+        or text.startswith("c！")
+        or text.startswith("cs!")
+        or text.startswith("cs！")
+        or text.startswith("cg!")
+        or text.startswith("cg！")
+        or text.startswith("p!")
+        or text.startswith("p！")
+        or text.startswith("v!")
+        or text.startswith("v！")
     ):  # new message
         if text.startswith("!!") or text.startswith("！！"):
             text = text[2:]
@@ -969,6 +1037,64 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if CLAUDE3_USE_OPENAI_URL:
                 model = "claude-3-opus"
             search = True
+        elif text.startswith("v!") or text.startswith("v！"):
+            text = text[2:]
+            model = VISION_MODEL
+        elif text.startswith("p!") or text.startswith("p！"):
+            ## draw pictures
+            text = text[2:]
+            size = "1024x1024"
+            if "-w" in text:
+                size = "1792x1024"
+                text = text.replace("-w", "")
+            if "-h" in text:
+                size = "1024x1792"
+                text = text.replace("-h", "")
+            style = NOT_GIVEN
+            if "-v" in text:
+                style = "vivid"
+                text = text.replace("-v", "")
+            if "-n" in text:
+                style = "natural"
+                text = text.replace("-n", "")
+
+            try:
+                logging.info(f"start dall-e draw picture {text}")
+                client.timeout = PictureTimeoutSetting
+                response = await client.images.generate(
+                    model="dall-e-3",
+                    response_format="b64_json",
+                    prompt=text,
+                    size=size,
+                    quality="standard",
+                    style=style,
+                    n=1,
+                )
+                client.timeout = TimeoutSetting
+                image_b64 = response.data[0].b64_json
+                image_data = b64decode(image_b64)
+                bot: BT = application.bot
+                await bot.send_photo(
+                    chat_id=update.effective_chat.id,
+                    photo=image_data,
+                    read_timeout=15,
+                    write_timeout=15,
+                )
+                await send_message(
+                    update.effective_chat.id,
+                    f"draw picture successful",
+                    update.message.message_id,
+                )
+            except Exception as e:
+                client.timeout = TimeoutSetting
+                traceback.print_exc()
+                logging.error(f"get dall-e error: {e}")
+                await send_message(
+                    update.effective_chat.id,
+                    f"draw picture error {e}",
+                    update.message.message_id,
+                )
+            return
         else:
             text = text[1:]
     else:  # not reply or new message to bot
@@ -996,7 +1122,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply = ""
         async with BotReplyMessages(chat_id, msg_id, f"[{model}] ") as replymsgs:
             try:
-                stream = completion(chat_history, model, chat_id, msg_id, search)
+                stream = completion(chat_history, model, chat_id, msg_id, search, image)
                 first_update_timestamp = None
                 async for delta in stream:
                     reply += delta
@@ -1088,7 +1214,9 @@ if __name__ == "__main__":
             .build()
         )
         application.add_handler(
-            MessageHandler(filters.TEXT & (~filters.COMMAND), reply_handler)
+            MessageHandler(
+                (filters.TEXT | filters.PHOTO) & (~filters.COMMAND), reply_handler
+            )
         )
         application.add_handler(CommandHandler("ping", ping))
         application.add_handler(CommandHandler("mode", get_mode))
