@@ -137,7 +137,7 @@ async def async_crawler(search_dict: Dict[str, str]) -> Optional[List[str]]:
                 ["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "tr", "article"]
             ):
                 text = elem.get_text(strip=True, separator=" ")
-                if len(text) <= 10:
+                if len(text) <= 15:
                     continue
                 context_para.append(text)
 
@@ -169,7 +169,7 @@ async def async_url(url: str) -> Tuple[str, str]:
                     ["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "tr", "article"]
                 ):
                     text = elem.get_text(strip=True, separator=" ")
-                    if len(text) <= 6:
+                    if len(text) <= 15:
                         continue
                     msg += text
                     if len(msg) > TOTAL_WEB_LIMIT * 0.9:
