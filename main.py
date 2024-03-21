@@ -42,7 +42,7 @@ OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", None)
 OFFICIAL_OPENAI_BASE_URL = "https://api.openai.com/v1"
 CLAUDE3_USE_OPENAI_URL = (
     True
-    if OPENAI_BASE_URL is not None and OPENAI_BASE_URL == "https://api.gptapi.us/v1"
+    if OPENAI_BASE_URL is not None and "gptapi" in OPENAI_BASE_URL
     else False
 )
 
@@ -723,6 +723,9 @@ async def get_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
 - g! or g！: Use GPT-4 Turbo with Google search
 - p! or p！: Use Dall-e 3 (options -n -v -h -w)
 - v! or v！: Use GPT-4 Vision Preview
+- t! or t！: Use 通义千文 qwen-max
+- tp! or tp！: Use 通义千文 qwen-plus
+- tt! or tt！: Use 通义千文 qwen-turbo
 """
 
     if aclient is not None or CLAUDE3_USE_OPENAI_URL:
@@ -771,7 +774,7 @@ async def disable_private(update: Update, context: ContextTypes.DEFAULT_TYPE):
         OPENAI_BASE_URL if OPENAI_BASE_URL is not None else OFFICIAL_OPENAI_BASE_URL
     )
 
-    if OPENAI_BASE_URL is not None and OPENAI_BASE_URL == "https://api.gptapi.us/v1":
+    if OPENAI_BASE_URL is not None and "gptapi" in OPENAI_BASE_URL:
         global CLAUDE3_USE_OPENAI_URL
         CLAUDE3_USE_OPENAI_URL = True
     await send_message(
@@ -1037,6 +1040,15 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if CLAUDE3_USE_OPENAI_URL:
                 model = "claude-3-opus"
             search = True
+        elif text.startswith("t!") or text.startswith("t！"):
+            text = text[2:]
+            model = "qwen-max"
+        elif text.startswith("tp!") or text.startswith("tp！"):
+            text = text[3:]
+            model = "qwen-plus"
+        elif text.startswith("tt!") or text.startswith("tt！"):
+            text = text[3:]
+            model = "qwen-turbo"
         elif text.startswith("v!") or text.startswith("v！"):
             text = text[2:]
             model = VISION_MODEL
