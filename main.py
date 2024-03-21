@@ -252,6 +252,10 @@ def PROMPT(model, context_set: List[List[str]] = [], language="English"):
         mode_str = "Claude 3"
         mode_company = "Anthropic"
 
+    if "qwen" in model:
+        mode_str = "通义千问"
+        mode_company="阿里云"
+
     cut_off = "Dec. 2023"
     if "gpt-3" in model:
         cut_off = "Oct. 2021"
@@ -646,6 +650,9 @@ async def completion(
 
             obj = response.choices[0]
             if obj.finish_reason is not None:
+                if obj.delta.content is not None:
+                    full_answer += obj.delta.content
+                    yield obj.delta.content
                 if obj.finish_reason == "length":
                     yield " [!Output truncated due to limit]"
                 full_answer = full_answer.replace("^]", "]")
@@ -1016,6 +1023,12 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         or text.startswith("p！")
         or text.startswith("v!")
         or text.startswith("v！")
+        or text.startswith("t!")
+        or text.startswith("t！")
+        or text.startswith("tp!")
+        or text.startswith("tp！")
+        or text.startswith("tt!")
+        or text.startswith("tt！")
     ):  # new message
         if text.startswith("!!") or text.startswith("！！"):
             text = text[2:]
