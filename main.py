@@ -1032,10 +1032,10 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ):  # new message
         if text.startswith("!!") or text.startswith("！！"):
             text = text[2:]
-            model = "gpt-4-0125-preview"
+            model = "gpt-4-turbo-2024-04-09"
         elif text.startswith("g!") or text.startswith("g！"):
             text = text[2:]
-            model = "gpt-4-0125-preview"
+            model = "gpt-4-turbo-2024-04-09"
             search = True
         elif text.startswith("c!") or text.startswith("c！"):
             text = text[2:]
