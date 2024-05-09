@@ -256,6 +256,10 @@ def PROMPT(model, context_set: List[List[str]] = [], language="English"):
         mode_str = "通义千问"
         mode_company="阿里云"
 
+    if "deepseek" in model:
+        mode_str = "deepseek-chat"
+        mode_company="Deepseek"
+
     cut_off = "Dec. 2023"
     if "gpt-3" in model:
         cut_off = "Oct. 2021"
@@ -733,6 +737,7 @@ async def get_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
 - t! or t！: Use 通义千文 qwen-max
 - tp! or tp！: Use 通义千文 qwen-plus
 - tt! or tt！: Use 通义千文 qwen-turbo
+- d! or d！: Use DeekSeek-Chat
 """
 
     if aclient is not None or CLAUDE3_USE_OPENAI_URL:
@@ -1029,6 +1034,8 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         or text.startswith("tp！")
         or text.startswith("tt!")
         or text.startswith("tt！")
+        or text.startswith("d!")
+        or text.startswith("d！")
     ):  # new message
         if text.startswith("!!") or text.startswith("！！"):
             text = text[2:]
@@ -1062,6 +1069,9 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif text.startswith("tt!") or text.startswith("tt！"):
             text = text[3:]
             model = "qwen-turbo"
+        elif text.startswith("d!") or text.startswith("d！"):
+            text = text[2:]
+            model = "deepseek-chat"
         elif text.startswith("v!") or text.startswith("v！"):
             text = text[2:]
             model = VISION_MODEL
