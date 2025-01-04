@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import os
 import logging
 import shelve
@@ -25,14 +26,28 @@ from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_openai import ChatOpenAI
 from langchain_core.tools import Tool
-from langchain_community.tools import DuckDuckGoSearchRun, ArxivQueryRun, WikipediaQueryRun, WolframAlphaQueryRun
+from langchain_core.output_parsers import StrOutputParser
+from langchain_community.tools import (
+    DuckDuckGoSearchRun,
+    ArxivQueryRun,
+    WikipediaQueryRun,
+    WolframAlphaQueryRun,
+)
 from langchain_community.agent_toolkits.openapi.toolkit import RequestsToolkit
 from langchain_google_community import GoogleSearchAPIWrapper
-from langchain_community.utilities import WikipediaAPIWrapper, WolframAlphaAPIWrapper, DuckDuckGoSearchAPIWrapper, TextRequestsWrapper
+from langchain_community.utilities import (
+    WikipediaAPIWrapper,
+    WolframAlphaAPIWrapper,
+    DuckDuckGoSearchAPIWrapper,
+    TextRequestsWrapper,
+)
 
 from dotenv import load_dotenv
+
 load_dotenv()
-sqlite_engine = create_async_engine('sqlite+aiosqlite:///data/sqlite.db', echo=True, future=True)
+sqlite_engine = create_async_engine(
+    "sqlite+aiosqlite:///data/sqlite.db", echo=True, future=True
+)
 
 ADMIN_ID = os.environ.get("TELEGRAM_ADMIN_ID")
 ADMIN_ID = int(ADMIN_ID)
@@ -52,6 +67,7 @@ VISION_MODEL = "gpt-4-vision-preview"
 
 telegram_last_timestamp = None
 telegram_rate_limit_lock = asyncio.Lock()
+
 
 class PendingReplyManager:
     def __init__(self):
@@ -219,6 +235,7 @@ def construct_chat_history(chat_id, msg_id):
         )
         return None, None
     return messages[::-1], model
+
 
 @only_admin
 async def add_whitelist_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -394,21 +411,40 @@ def is_chinese(string):
     return False
 
 
-async def get_model(model: str = DEFAULT_MODEL, language: str = "en") -> RunnableWithMessageHistory:
+async def get_model(
+    model: str = DEFAULT_MODEL, language: str = "en"
+) -> RunnableWithMessageHistory:
+    current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     prompt = ChatPromptTemplate.from_messages(
-        [("system", "You are a helpful assistant."),
-         MessagesPlaceholder(variable_name="history", optional=True),
-         ("human", "{question}"),
-         MessagesPlaceholder(variable_name="agent_scratchpad"),
-        ])
-    llm = ChatOpenAI(model=model, base_url=OPENAI_BASE_URL, streaming=True, temperature=0.7, cache=True)
+        [
+            (
+                "system",
+                f"You are a helpful ChatGPT Telegram bot. Answer as concisely as possible. Current Beijing Time: f{current_time}",
+            ),
+            MessagesPlaceholder(variable_name="history", optional=True),
+            ("human", "{question}"),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),
+        ]
+    )
+    llm = ChatOpenAI(
+        model=model,
+        base_url=OPENAI_BASE_URL,
+        streaming=True,
+        temperature=0.7,
+        cache=True,
+    )
     tools = [
         ArxivQueryRun(),
-        WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper(doc_content_chars_max=8000))
+        WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper(doc_content_chars_max=8000)),
     ]
 
-    if os.environ.get("GOOGLE_CSE_ID", None) is None or os.environ.get("GOOGLE_API_KEY", None) is None:
-        tools.append(DuckDuckGoSearchRun(api_wrapper=DuckDuckGoSearchAPIWrapper(max_results=10)))
+    if (
+        os.environ.get("GOOGLE_CSE_ID", None) is None
+        or os.environ.get("GOOGLE_API_KEY", None) is None
+    ):
+        tools.append(
+            DuckDuckGoSearchRun(api_wrapper=DuckDuckGoSearchAPIWrapper(max_results=10))
+        )
     else:
         search_wrapper = GoogleSearchAPIWrapper()
 
@@ -420,16 +456,22 @@ async def get_model(model: str = DEFAULT_MODEL, language: str = "en") -> Runnabl
         tools.append(google_search)
 
     if os.environ.get("WOLFRAM_ALPHA_APPID", None) is not None:
-        tools.append(WolframAlphaQueryRun(api_wrapper=WolframAlphaAPIWrapper(wolfram_alpha_appid=os.environ.get("WOLFRAM_ALPHA_APPID"))))
-    
+        tools.append(
+            WolframAlphaQueryRun(
+                api_wrapper=WolframAlphaAPIWrapper(
+                    wolfram_alpha_appid=os.environ.get("WOLFRAM_ALPHA_APPID")
+                )
+            )
+        )
+
     class SmallSizeRequestsWrapper(TextRequestsWrapper):
         async def _aget_resp_content(
             self, response: aiohttp.ClientResponse
         ) -> Union[str, Dict[str, Any]]:
             if self.response_content_type == "text":
                 content = await response.text()
-                if len(content) > 8000:
-                    return content[:8000]
+                if len(content) > 16000:
+                    return content[:16000]
                 return content
             elif self.response_content_type == "json":
                 return await response.json()
@@ -437,14 +479,18 @@ async def get_model(model: str = DEFAULT_MODEL, language: str = "en") -> Runnabl
                 raise ValueError(f"Invalid return type: {self.response_content_type}")
 
     toolkit = RequestsToolkit(
-        requests_wrapper=SmallSizeRequestsWrapper(headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"}),
+        requests_wrapper=SmallSizeRequestsWrapper(
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"
+            }
+        ),
         allow_dangerous_requests=True,
     )
     tools.append(toolkit.get_tools()[0])
 
     agent = create_tool_calling_agent(llm, tools, prompt)
     agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
-    chain = agent_executor #| StrOutputParser()
+    chain = agent_executor  # | StrOutputParser()
     # chain_with_history = RunnableWithMessageHistory(
     #     chain,
     #     lambda session_id: SQLChatMessageHistory(
@@ -454,6 +500,16 @@ async def get_model(model: str = DEFAULT_MODEL, language: str = "en") -> Runnabl
     #     history_messages_key="history",
     # ) | StrOutputParser()
     return chain
+
+
+async def get_vision_model(model: str = VISION_MODEL):
+    llm = (
+        ChatOpenAI(
+            model=model, base_url=OPENAI_BASE_URL, streaming=True, temperature=0.7
+        )
+        | StrOutputParser()
+    )
+    return llm
 
 
 @only_whitelist
@@ -487,7 +543,9 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         key = repr(("session", chat_id, reply_to_id))
         if key not in db:
             logging.error(
-                "Session message not found (chat_id=%r, msg_id=%r)", chat_id, reply_to_id
+                "Session message not found (chat_id=%r, msg_id=%r)",
+                chat_id,
+                reply_to_id,
             )
             return
         session_id = db[key]
@@ -511,18 +569,60 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session_id,
     )
     chain_with_history = await get_model(model=model)
+    if image is not None:
+        image_b64 = base64.b64encode(image).decode("ascii")
+        current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        prompt = [
+            (
+                "system",
+                f"You are a helpful ChatGPT Telegram bot. Answer as concisely as possible. Current Beijing Time: {current_time}",
+            ),
+            HumanMessage(
+                content=[
+                    {"type": "text", "text": text},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                    },
+                ]
+            ),
+        ]
+        vision_model = await get_vision_model(model=VISION_MODEL)
+        async with BotReplyMessages(chat_id, msg_id, f"[{model}] ") as replymsgs:
+            try:
+                reply = await vision_model.ainvoke(prompt)
+                history = SQLChatMessageHistory(
+                    session_id=session_id, connection=sqlite_engine, async_mode=True
+                )
+                logging.info(f"History: {await history.aget_messages()}")
+                await history.aadd_message(HumanMessage(content=text))
+                await history.aadd_message(AIMessage(content=reply))
+                await replymsgs.update(reply)
+                await replymsgs.finalize()
+                key = repr(("session", chat_id, replymsgs.replied_msgs[0][0]))
+                db[key] = session_id
+                logging.debug(f"insert session chat_id{key}: {session_id}")
+            except Exception as e:
+                logging.exception(
+                    "Error (chat_id=%r, msg_id=%r): %s",
+                    chat_id,
+                    msg_id,
+                    e,
+                )
+        return
 
     error_cnt = 0
     while True:
         reply = ""
         async with BotReplyMessages(chat_id, msg_id, f"[{model}] ") as replymsgs:
             try:
-                history = SQLChatMessageHistory(session_id=session_id, connection=sqlite_engine, async_mode=True)
+                history = SQLChatMessageHistory(
+                    session_id=session_id, connection=sqlite_engine, async_mode=True
+                )
                 logging.info(f"History: {await history.aget_messages()}")
                 stream = chain_with_history.astream(
-                    {"question": text,
-                     "history": await history.aget_messages()},
-                     )
+                    {"question": text, "history": await history.aget_messages()},
+                )
                 first_update_timestamp = None
                 action_logs = []
                 async for delta in stream:
@@ -532,15 +632,20 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             reply += v
                             if first_update_timestamp is None:
                                 first_update_timestamp = time.time()
-                            if time.time() >= first_update_timestamp + FIRST_BATCH_DELAY:
+                            if (
+                                time.time()
+                                >= first_update_timestamp + FIRST_BATCH_DELAY
+                            ):
                                 await replymsgs.update(reply + " [!Generating...]")
                         if k == "steps":
                             for ass in v:
-                                action_logs.append(ass.action.log.replace('\n', '').replace('\r', ''))
+                                action_logs.append(
+                                    ass.action.log.replace("\n", "").replace("\r", "")
+                                )
                 await history.aadd_message(HumanMessage(content=text))
                 await history.aadd_message(AIMessage(content=reply))
                 if len(action_logs) > 0:
-                    reply += '\n【日志】'
+                    reply += "\n【日志】"
                     reply += "\n".join(action_logs)
                 await replymsgs.update(reply)
                 await replymsgs.finalize()
@@ -573,6 +678,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await asyncio.sleep(OPENAI_RETRY_INTERVAL)
                 if not will_retry:
                     break
+
 
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_message(
