@@ -2,4 +2,6 @@
 env
 data
 *.log
+.env
 db
+docker-compose.yml

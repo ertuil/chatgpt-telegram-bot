@@ -8,12 +8,12 @@ services:
         volumes:
           - ./data:/app/data
         environment:
-          - OFFICIAL_OPENAI_API_KEY=
           - OPENAI_API_KEY=
           - TELEGRAM_BOT_TOKEN=
           - TELEGRAM_ADMIN_ID=
           - DEFAULT_MODEL=gpt-3.5-turbo
           - GOOGLE_API_KEY=
           - GOOGLE_CSE_ID=
-          - ANTHROPIC_API_KEY=
           - OPENAI_BASE_URL=
+          - WOLFRAM_ALPHA_APPID=
+          - OPENWEATHERMAP_API_KEY=

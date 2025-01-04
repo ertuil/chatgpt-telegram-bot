@@ -1,6 +1,8 @@
 env
 main.py.log
 *.log
-data
+.env
+data/*
+!data/.gitkeep
 db
 docker-compose.yml
