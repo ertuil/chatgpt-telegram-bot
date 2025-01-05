@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import json
 import os
 import logging
 import shelve
@@ -424,6 +425,13 @@ def is_chinese(string):
             return "cn"
     return False
 
+class GoogleSearchAPIWrapperSelf(GoogleSearchAPIWrapper):
+    def run(self, query: str) -> str:
+        """Run query through GoogleSearch and parse result."""
+        results = self._google_search_results(query, num=self.k)
+        if len(results) == 0:
+            return "No good Google Search Result was found"
+        return json.dumps(results)
 
 async def get_model(
     model: str = DEFAULT_MODEL, language: str = "en"
@@ -449,7 +457,7 @@ async def get_model(
     )
     tools = [
         ArxivQueryRun(),
-        WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper(doc_content_chars_max=8000)),
+        WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper(doc_content_chars_max=16000)),
     ]
 
     if (
@@ -460,8 +468,7 @@ async def get_model(
             DuckDuckGoSearchRun(api_wrapper=DuckDuckGoSearchAPIWrapper(max_results=10))
         )
     else:
-        search_wrapper = GoogleSearchAPIWrapper()
-
+        search_wrapper = GoogleSearchAPIWrapperSelf(k=10)
         google_search = Tool(
             name="google_search",
             description="Search Google for recent results.",
