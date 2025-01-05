@@ -7,6 +7,7 @@ import shelve
 import time
 import traceback
 from typing import Any, Dict, Union
+import uuid
 import aiohttp
 from telegram import File, Update
 from telegram.ext import (
@@ -42,7 +43,7 @@ from langchain_community.utilities import (
     DuckDuckGoSearchAPIWrapper,
     TextRequestsWrapper,
 )
-
+import langsmith
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -641,8 +642,10 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     session_id=session_id, connection=sqlite_engine, async_mode=True
                 )
                 logging.info(f"History: {await history.aget_messages()}")
+                new_trace_id = uuid.uuid4()
                 stream = chain_with_history.astream(
                     {"question": text, "history": await history.aget_messages()},
+                    {"run_id": new_trace_id}
                 )
                 first_update_timestamp = None
                 action_logs = []
@@ -668,6 +671,13 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if len(action_logs) > 0:
                     reply += "\n【日志】"
                     reply += "\n".join(action_logs)
+                    try:
+                        if os.environ.get("LANGCHAIN_API_KEY", None) is not None:
+                            client = langsmith.Client()
+                            share_url = client.share_run(new_trace_id)
+                            reply += f"\n日志地址：{share_url}"
+                    except Exception as e:
+                        logging.warning(f"get log error: {e}")
                 await replymsgs.update(reply)
                 await replymsgs.finalize()
                 key = repr(("session", chat_id, replymsgs.replied_msgs[0][0]))
