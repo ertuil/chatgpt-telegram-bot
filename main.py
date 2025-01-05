@@ -270,6 +270,15 @@ async def get_whitelist_handler(update: Update, context: ContextTypes.DEFAULT_TY
         update.effective_chat.id, str(get_whitelist()), update.message.message_id
     )
 
+@only_admin
+async def set_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message.text
+    message = message.replace("/set_model ", "").replace(" ", "").strip()
+    global DEFAULT_MODEL
+    DEFAULT_MODEL = message
+    await send_message(
+        update.effective_chat.id, f"Model set to {message}", update.message.message_id
+    )
 
 @retry()
 @ensure_interval()
@@ -695,6 +704,7 @@ async def post_init(application):
             ("add_whitelist", "Add this group to whitelist (only admin)"),
             ("del_whitelist", "Delete this group from whitelist (only admin)"),
             ("get_whitelist", "List groups in whitelist (only admin)"),
+            ("set_model", "Set GPT model (only admin)"),
         ]
     )
 
@@ -741,4 +751,5 @@ if __name__ == "__main__":
         application.add_handler(CommandHandler("add_whitelist", add_whitelist_handler))
         application.add_handler(CommandHandler("del_whitelist", del_whitelist_handler))
         application.add_handler(CommandHandler("get_whitelist", get_whitelist_handler))
+        application.add_handler(CommandHandler("set_model", set_model))
         application.run_polling()
