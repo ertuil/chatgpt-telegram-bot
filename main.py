@@ -645,7 +645,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 new_trace_id = uuid.uuid4()
                 stream = chain_with_history.astream(
                     {"question": text, "history": await history.aget_messages()},
-                    {"run_id": new_trace_id}
+                    {"run_id": new_trace_id, "tags": [DEFAULT_MODEL]}
                 )
                 first_update_timestamp = None
                 action_logs = []
