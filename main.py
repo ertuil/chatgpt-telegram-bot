@@ -429,9 +429,20 @@ def is_chinese(string):
 class GoogleSearchAPIWrapperSelf(GoogleSearchAPIWrapper):
     def run(self, query: str) -> str:
         """Run query through GoogleSearch and parse result."""
-        results = self._google_search_results(query, num=self.k)
+        metadata_results = []
+        results = self._google_search_results(
+            query, num=self.k
+        )
         if len(results) == 0:
             return "No good Google Search Result was found"
+        for result in results:
+            metadata_result = {
+                "title": result["title"],
+                "link": result["link"],
+            }
+            if "snippet" in result:
+                metadata_result["snippet"] = result["snippet"]
+            metadata_results.append(metadata_result)
         return json.dumps(results, ensure_ascii=False)
 
 async def get_model(
