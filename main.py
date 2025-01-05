@@ -431,7 +431,7 @@ class GoogleSearchAPIWrapperSelf(GoogleSearchAPIWrapper):
         results = self._google_search_results(query, num=self.k)
         if len(results) == 0:
             return "No good Google Search Result was found"
-        return json.dumps(results)
+        return json.dumps(results, ensure_ascii=False)
 
 async def get_model(
     model: str = DEFAULT_MODEL, language: str = "en"
