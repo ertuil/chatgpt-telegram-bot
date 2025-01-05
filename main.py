@@ -443,7 +443,7 @@ class GoogleSearchAPIWrapperSelf(GoogleSearchAPIWrapper):
             if "snippet" in result:
                 metadata_result["snippet"] = result["snippet"]
             metadata_results.append(metadata_result)
-        return json.dumps(results, ensure_ascii=False)
+        return json.dumps(metadata_results, ensure_ascii=False)
 
 async def get_model(
     model: str = DEFAULT_MODEL, language: str = "en"
