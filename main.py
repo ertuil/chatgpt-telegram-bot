@@ -272,6 +272,7 @@ async def get_whitelist_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
 @only_admin
 async def set_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global DEFAULT_MODEL
     message = update.message.text
     message = message.replace("/set_model", "").replace(" ", "").strip()
     if message == "":
@@ -279,7 +280,6 @@ async def set_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update.effective_chat.id, f"Current model is {DEFAULT_MODEL}, please give me the model name", update.message.message_id
         )
         return
-    global DEFAULT_MODEL
     DEFAULT_MODEL = message
     await send_message(
         update.effective_chat.id, f"Model set to {message}", update.message.message_id
