@@ -1,6 +1,15 @@
-# chatgpt-telegram-bot (with google)
+# chatgpt-telegram-bot (with multiple plugins)
 
-A Google-Search Extended ChatGPT Telegram bot.
+An Extended ChatGPT Telegram bot with the following plugins using LangChain and LangSmith.
+* Arxiv
+* Wikipedia
+* DuckDuckGo
+* GoogleSearch
+* WolframAlpha
+
+Also, it supports:
+* Tracing steps using LangSmith
+* GPT-4v for image understanding
 
 ## Download & Usage
 
