@@ -60,8 +60,8 @@ OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", None)
 
 TELEGRAM_LENGTH_LIMIT = 4096
 TELEGRAM_MIN_INTERVAL = 3
-PAGE_LIMIT = 1500
-TOTAL_WEB_LIMIT = 8000
+TOTAL_WEB_LIMIT = 16000
+TOTAL_WEB_PAGE = 10
 OPENAI_MAX_RETRY = 3
 OPENAI_RETRY_INTERVAL = 10
 FIRST_BATCH_DELAY = 1
@@ -469,7 +469,7 @@ async def get_model(
     )
     tools = [
         ArxivQueryRun(),
-        WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper(doc_content_chars_max=16000)),
+        WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper(doc_content_chars_max=TOTAL_WEB_LIMIT)),
     ]
 
     if (
@@ -477,10 +477,10 @@ async def get_model(
         or os.environ.get("GOOGLE_API_KEY", None) is None
     ):
         tools.append(
-            DuckDuckGoSearchRun(api_wrapper=DuckDuckGoSearchAPIWrapper(max_results=10))
+            DuckDuckGoSearchRun(api_wrapper=DuckDuckGoSearchAPIWrapper(max_results=TOTAL_WEB_PAGE))
         )
     else:
-        search_wrapper = GoogleSearchAPIWrapperSelf(k=10)
+        search_wrapper = GoogleSearchAPIWrapperSelf(k=TOTAL_WEB_PAGE)
         google_search = Tool(
             name="google_search",
             description="Search Google for recent results.",
@@ -503,8 +503,8 @@ async def get_model(
         ) -> Union[str, Dict[str, Any]]:
             if self.response_content_type == "text":
                 content = await response.text()
-                if len(content) > 16000:
-                    return content[:16000]
+                if len(content) > TOTAL_WEB_LIMIT:
+                    return content[:TOTAL_WEB_LIMIT]
                 return content
             elif self.response_content_type == "json":
                 return await response.json()
