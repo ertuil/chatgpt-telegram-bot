@@ -45,6 +45,7 @@ from langchain_community.utilities import (
 )
 import langsmith
 from dotenv import load_dotenv
+from bs4 import BeautifulSoup
 
 load_dotenv()
 sqlite_engine = create_async_engine(
@@ -56,12 +57,13 @@ ADMIN_ID = int(ADMIN_ID)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "gpt-3.5-turbo")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", None)
-
+TOTAL_WEB_LIMIT = os.environ.get("TOTAL_WEB_LIMIT", 16000)
+TOTAL_WEB_LIMIT = int(TOTAL_WEB_LIMIT)
+TOTAL_WEB_PAGE = os.environ.get("TOTAL_WEB_PAGE", 10)
+TOTAL_WEB_PAGE = int(TOTAL_WEB_PAGE)
 
 TELEGRAM_LENGTH_LIMIT = 4096
 TELEGRAM_MIN_INTERVAL = 3
-TOTAL_WEB_LIMIT = 16000
-TOTAL_WEB_PAGE = 10
 OPENAI_MAX_RETRY = 3
 OPENAI_RETRY_INTERVAL = 10
 FIRST_BATCH_DELAY = 1
@@ -272,6 +274,7 @@ async def get_whitelist_handler(update: Update, context: ContextTypes.DEFAULT_TY
         update.effective_chat.id, str(get_whitelist()), update.message.message_id
     )
 
+
 @only_admin
 async def set_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global DEFAULT_MODEL
@@ -279,13 +282,16 @@ async def set_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = message.replace("/set_model", "").replace(" ", "").strip()
     if message == "":
         await send_message(
-            update.effective_chat.id, f"Current model is {DEFAULT_MODEL}, please give me the model name", update.message.message_id
+            update.effective_chat.id,
+            f"Current model is {DEFAULT_MODEL}, please give me the model name",
+            update.message.message_id,
         )
         return
     DEFAULT_MODEL = message
     await send_message(
         update.effective_chat.id, f"Model set to {message}", update.message.message_id
     )
+
 
 @retry()
 @ensure_interval()
@@ -426,13 +432,12 @@ def is_chinese(string):
             return "cn"
     return False
 
+
 class GoogleSearchAPIWrapperSelf(GoogleSearchAPIWrapper):
     def run(self, query: str) -> str:
         """Run query through GoogleSearch and parse result."""
         metadata_results = []
-        results = self._google_search_results(
-            query, num=self.k
-        )
+        results = self._google_search_results(query, num=self.k)
         if len(results) == 0:
             return "No good Google Search Result was found"
         for result in results:
@@ -444,6 +449,7 @@ class GoogleSearchAPIWrapperSelf(GoogleSearchAPIWrapper):
                 metadata_result["snippet"] = result["snippet"]
             metadata_results.append(metadata_result)
         return json.dumps(metadata_results, ensure_ascii=False)
+
 
 async def get_model(
     model: str = DEFAULT_MODEL, language: str = "en"
@@ -469,7 +475,9 @@ async def get_model(
     )
     tools = [
         ArxivQueryRun(),
-        WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper(doc_content_chars_max=TOTAL_WEB_LIMIT)),
+        WikipediaQueryRun(
+            api_wrapper=WikipediaAPIWrapper(doc_content_chars_max=TOTAL_WEB_LIMIT)
+        ),
     ]
 
     if (
@@ -477,7 +485,9 @@ async def get_model(
         or os.environ.get("GOOGLE_API_KEY", None) is None
     ):
         tools.append(
-            DuckDuckGoSearchRun(api_wrapper=DuckDuckGoSearchAPIWrapper(max_results=TOTAL_WEB_PAGE))
+            DuckDuckGoSearchRun(
+                api_wrapper=DuckDuckGoSearchAPIWrapper(max_results=TOTAL_WEB_PAGE)
+            )
         )
     else:
         search_wrapper = GoogleSearchAPIWrapperSelf(k=TOTAL_WEB_PAGE)
@@ -503,6 +513,15 @@ async def get_model(
         ) -> Union[str, Dict[str, Any]]:
             if self.response_content_type == "text":
                 content = await response.text()
+                if response.content_type == "text/html":
+                    dom = BeautifulSoup(content, "html.parser")
+                    result = ""
+                    element = dom.find("title")
+                    if element is not None:
+                        result += element.get_text() + "\n"
+                    text = dom.get_text(separator="\t", strip=True)
+                    result += text[: min(len(text), TOTAL_WEB_LIMIT)]
+                    return result
                 if len(content) > TOTAL_WEB_LIMIT:
                     return content[:TOTAL_WEB_LIMIT]
                 return content
@@ -656,7 +675,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 new_trace_id = uuid.uuid4()
                 stream = chain_with_history.astream(
                     {"question": text, "history": await history.aget_messages()},
-                    {"run_id": new_trace_id, "tags": [DEFAULT_MODEL]}
+                    {"run_id": new_trace_id, "tags": [DEFAULT_MODEL]},
                 )
                 first_update_timestamp = None
                 action_logs = []
@@ -748,7 +767,7 @@ if __name__ == "__main__":
     )
 
     rootLogger = logging.getLogger()
-    rootLogger.setLevel(logging.INFO)
+    rootLogger.setLevel(logging.DEBUG)
 
     fileHandler = logging.FileHandler("chatgpt-telegram-bot.log")
     fileHandler.setFormatter(logFormatter)
