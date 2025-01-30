@@ -55,11 +55,11 @@ sqlite_engine = create_async_engine(
 ADMIN_ID = os.environ.get("TELEGRAM_ADMIN_ID")
 ADMIN_ID = int(ADMIN_ID)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "gpt-3.5-turbo")
+DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "deepseek-chat")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", None)
-TOTAL_WEB_LIMIT = os.environ.get("TOTAL_WEB_LIMIT", 16000)
+TOTAL_WEB_LIMIT = os.environ.get("TOTAL_WEB_LIMIT", 4000)
 TOTAL_WEB_LIMIT = int(TOTAL_WEB_LIMIT)
-TOTAL_WEB_PAGE = os.environ.get("TOTAL_WEB_PAGE", 10)
+TOTAL_WEB_PAGE = os.environ.get("TOTAL_WEB_PAGE", 5)
 TOTAL_WEB_PAGE = int(TOTAL_WEB_PAGE)
 
 TELEGRAM_LENGTH_LIMIT = 4096
@@ -67,7 +67,7 @@ TELEGRAM_MIN_INTERVAL = 3
 OPENAI_MAX_RETRY = 3
 OPENAI_RETRY_INTERVAL = 10
 FIRST_BATCH_DELAY = 1
-VISION_MODEL = "gpt-4-vision-preview"
+VISION_MODEL = "deepseek-chat"
 
 telegram_last_timestamp = None
 telegram_rate_limit_lock = asyncio.Lock()
@@ -459,90 +459,22 @@ async def get_model(
         [
             (
                 "system",
-                f"You are a helpful ChatGPT Telegram bot. Answer as concisely as possible. Current Beijing Time: f{current_time}",
+                f"You are a helpful DeepSeek Telegram bot. Answer as concisely as possible. Current Beijing Time: f{current_time}",
             ),
             MessagesPlaceholder(variable_name="history", optional=True),
             ("human", "{question}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad"),
+            MessagesPlaceholder(variable_name="agent_scratchpad", optional=True),
         ]
     )
     llm = ChatOpenAI(
         model=model,
         base_url=OPENAI_BASE_URL,
         streaming=True,
-        temperature=0.7,
-        cache=True,
+        temperature=0.5,
+        cache=False,
     )
-    tools = [
-        ArxivQueryRun(),
-        WikipediaQueryRun(
-            api_wrapper=WikipediaAPIWrapper(doc_content_chars_max=TOTAL_WEB_LIMIT)
-        ),
-    ]
 
-    if (
-        os.environ.get("GOOGLE_CSE_ID", None) is None
-        or os.environ.get("GOOGLE_API_KEY", None) is None
-    ):
-        tools.append(
-            DuckDuckGoSearchRun(
-                api_wrapper=DuckDuckGoSearchAPIWrapper(max_results=TOTAL_WEB_PAGE)
-            )
-        )
-    else:
-        search_wrapper = GoogleSearchAPIWrapperSelf(k=TOTAL_WEB_PAGE)
-        google_search = Tool(
-            name="google_search",
-            description="Search Google for recent results.",
-            func=search_wrapper.run,
-        )
-        tools.append(google_search)
-
-    if os.environ.get("WOLFRAM_ALPHA_APPID", None) is not None:
-        tools.append(
-            WolframAlphaQueryRun(
-                api_wrapper=WolframAlphaAPIWrapper(
-                    wolfram_alpha_appid=os.environ.get("WOLFRAM_ALPHA_APPID")
-                )
-            )
-        )
-
-    class SmallSizeRequestsWrapper(TextRequestsWrapper):
-        async def _aget_resp_content(
-            self, response: aiohttp.ClientResponse
-        ) -> Union[str, Dict[str, Any]]:
-            if self.response_content_type == "text":
-                content = await response.text()
-                if response.content_type == "text/html":
-                    dom = BeautifulSoup(content, "html.parser")
-                    result = ""
-                    element = dom.find("title")
-                    if element is not None:
-                        result += element.get_text() + "\n"
-                    text = dom.get_text(separator="\t", strip=True)
-                    result += text[: min(len(text), TOTAL_WEB_LIMIT)]
-                    return result
-                if len(content) > TOTAL_WEB_LIMIT:
-                    return content[:TOTAL_WEB_LIMIT]
-                return content
-            elif self.response_content_type == "json":
-                return await response.json()
-            else:
-                raise ValueError(f"Invalid return type: {self.response_content_type}")
-
-    toolkit = RequestsToolkit(
-        requests_wrapper=SmallSizeRequestsWrapper(
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"
-            }
-        ),
-        allow_dangerous_requests=True,
-    )
-    tools.append(toolkit.get_tools()[0])
-
-    agent = create_tool_calling_agent(llm, tools, prompt)
-    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
-    chain = agent_executor  # | StrOutputParser()
+    chain = prompt | llm  # | StrOutputParser()
     # chain_with_history = RunnableWithMessageHistory(
     #     chain,
     #     lambda session_id: SQLChatMessageHistory(
@@ -601,8 +533,8 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         session_id = db[key]
-    elif text.startswith("!") or text.startswith("！"):  # new message
-        text = text[1:]
+    elif text.startswith("d!") or text.startswith("d！"):  # new message
+        text = text[2:]
         session_id = f"{chat_id}_{msg_id}"
         db[repr(("session", chat_id, msg_id))] = session_id
     else:  # not reply or new message to bot
@@ -627,7 +559,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         prompt = [
             (
                 "system",
-                f"You are a helpful ChatGPT Telegram bot. Answer as concisely as possible. Current Beijing Time: {current_time}",
+                f"You are a helpful DeepSeek Telegram bot. Answer as concisely as possible. Current Beijing Time: {current_time}",
             ),
             HumanMessage(
                 content=[
@@ -681,21 +613,15 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 action_logs = []
                 async for delta in stream:
                     logging.debug(f"debug delta: {delta}")
-                    for k, v in delta.items():
-                        if k == "output":
-                            reply += v
-                            if first_update_timestamp is None:
-                                first_update_timestamp = time.time()
-                            if (
-                                time.time()
-                                >= first_update_timestamp + FIRST_BATCH_DELAY
-                            ):
-                                await replymsgs.update(reply + " [!Generating...]")
-                        if k == "steps":
-                            for ass in v:
-                                action_logs.append(
-                                    ass.action.log.replace("\n", "").replace("\r", "")
-                                )
+                    v = delta.content
+                    reply += v
+                    if first_update_timestamp is None:
+                        first_update_timestamp = time.time()
+                    if (
+                        time.time()
+                        >= first_update_timestamp + FIRST_BATCH_DELAY
+                    ):
+                        await replymsgs.update(reply + " [!Generating...]")
                 await history.aadd_message(HumanMessage(content=text))
                 await history.aadd_message(AIMessage(content=reply))
                 if len(action_logs) > 0:
@@ -767,7 +693,7 @@ if __name__ == "__main__":
     )
 
     rootLogger = logging.getLogger()
-    rootLogger.setLevel(logging.DEBUG)
+    rootLogger.setLevel(logging.INFO)
 
     fileHandler = logging.FileHandler("chatgpt-telegram-bot.log")
     fileHandler.setFormatter(logFormatter)
