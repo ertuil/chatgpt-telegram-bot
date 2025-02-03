@@ -3,6 +3,7 @@ import base64
 import json
 import os
 import logging
+import re
 import shelve
 import time
 import traceback
@@ -20,9 +21,10 @@ from telegram.ext import (
 import openai
 from telegram.ext._application import BT
 from telegram.error import RetryAfter, NetworkError, BadRequest
+from telegram.constants import ParseMode
 from sqlalchemy.ext.asyncio import create_async_engine
 from langchain_community.chat_message_histories import SQLChatMessageHistory
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.runnables.history import RunnableWithMessageHistory
@@ -43,9 +45,11 @@ from langchain_community.utilities import (
     DuckDuckGoSearchAPIWrapper,
     TextRequestsWrapper,
 )
+from langchain_community.document_loaders import PyPDFLoader
 import langsmith
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
+import uuid
 
 load_dotenv()
 sqlite_engine = create_async_engine(
@@ -55,19 +59,21 @@ sqlite_engine = create_async_engine(
 ADMIN_ID = os.environ.get("TELEGRAM_ADMIN_ID")
 ADMIN_ID = int(ADMIN_ID)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "gpt-3.5-turbo")
+DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "gpt-4o-2024-11-20")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", None)
 TOTAL_WEB_LIMIT = os.environ.get("TOTAL_WEB_LIMIT", 16000)
 TOTAL_WEB_LIMIT = int(TOTAL_WEB_LIMIT)
 TOTAL_WEB_PAGE = os.environ.get("TOTAL_WEB_PAGE", 10)
 TOTAL_WEB_PAGE = int(TOTAL_WEB_PAGE)
+TOTAL_PDF_LIMIT = os.environ.get("TOTAL_PDF_LIMIT", 60000)
+TOTAL_PDF_LIMIT = int(TOTAL_PDF_LIMIT)
 
 TELEGRAM_LENGTH_LIMIT = 4096
 TELEGRAM_MIN_INTERVAL = 3
 OPENAI_MAX_RETRY = 3
 OPENAI_RETRY_INTERVAL = 10
 FIRST_BATCH_DELAY = 1
-VISION_MODEL = "gpt-4-vision-preview"
+VISION_MODEL = "gpt-4o-2024-11-20"
 
 telegram_last_timestamp = None
 telegram_rate_limit_lock = asyncio.Lock()
@@ -292,6 +298,24 @@ async def set_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update.effective_chat.id, f"Model set to {message}", update.message.message_id
     )
 
+def message_markdown_parse(text: str) -> str:
+    ss = text.split("\n")
+    text_parse = ""
+    for x in ss:
+        tmp_x = re.sub(r'[_*[\]()~>#\+\-=|{}.!]', lambda x: '\\' + x.group(), x)
+        if tmp_x.startswith("\\#"):
+            tmp_x = f"*{tmp_x}*"
+        elif tmp_x.startswith("\\>"):
+            tmp_x = f"> {tmp_x[2:]}"
+        else: 
+            tmp_xx = re.sub(r'\\\*\\\*.+\\\*\\\*', lambda x: '*' + x.group() + '*', tmp_x)
+            if tmp_xx != tmp_x:
+                tmp_x = tmp_xx
+            else:
+                tmp_x = re.sub(r'\\\*.+\\\*', lambda x: '_' + x.group() + '_', tmp_x)
+        text_parse += tmp_x + "\n"
+    return text_parse
+
 
 @retry()
 @ensure_interval()
@@ -302,12 +326,25 @@ async def send_message(chat_id, text, reply_to_message_id):
         reply_to_message_id,
         text,
     )
-    msg = await application.bot.send_message(
-        chat_id,
-        text,
-        reply_to_message_id=reply_to_message_id,
-        disable_web_page_preview=True,
-    )
+    try:
+        text_parse = message_markdown_parse(text)
+
+        msg = await application.bot.send_message(
+            chat_id,
+            text_parse,
+            reply_to_message_id=reply_to_message_id,
+            disable_web_page_preview=True,
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+    except ValueError or BadRequest as e:
+        logging.warning(f"Fallback to text mode: {e}")
+        msg = await application.bot.send_message(
+            chat_id,
+            text,
+            reply_to_message_id=reply_to_message_id,
+            disable_web_page_preview=True,
+        )
+    
     logging.info(
         "Message sent: chat_id=%r, reply_to_message_id=%r, message_id=%r",
         chat_id,
@@ -324,12 +361,24 @@ async def edit_message(chat_id, text, message_id):
         "Editing message: chat_id=%r, message_id=%r, text=%r", chat_id, message_id, text
     )
     try:
-        await application.bot.edit_message_text(
-            text,
-            chat_id=chat_id,
-            message_id=message_id,
-            disable_web_page_preview=True,
-        )
+
+        try:
+            text_parse = message_markdown_parse(text)
+
+            await application.bot.edit_message_text(
+                text_parse,
+                chat_id=chat_id,
+                disable_web_page_preview=True,
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+        except ValueError or BadRequest as e:
+            logging.warning(f"Fallback to text mode: {e}")
+            await application.bot.edit_message_text(
+                text,
+                chat_id=chat_id,
+                message_id=message_id,
+                disable_web_page_preview=True,
+            )
     except BadRequest as e:
         if (
             e.message
@@ -462,8 +511,9 @@ async def get_model(
                 f"You are a helpful ChatGPT Telegram bot. Answer as concisely as possible. Current Beijing Time: f{current_time}",
             ),
             MessagesPlaceholder(variable_name="history", optional=True),
+            MessagesPlaceholder(variable_name="pdf_content", optional=True),
             ("human", "{question}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad"),
+            MessagesPlaceholder(variable_name="agent_scratchpad", optional=True),
         ]
     )
     llm = ChatOpenAI(
@@ -471,7 +521,7 @@ async def get_model(
         base_url=OPENAI_BASE_URL,
         streaming=True,
         temperature=0.7,
-        cache=True,
+        cache=False,
     )
     tools = [
         ArxivQueryRun(),
@@ -575,6 +625,8 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session_id = None
     model = DEFAULT_MODEL
 
+    pdf_content = None
+
     try:
         p = update.message.photo[-1]
         logging.info(f"[photo] get photo {p.file_size} {p.width}x{p.height}")
@@ -585,6 +637,27 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = cap if cap is not None and text is None else text
     except Exception:
         image = None
+
+    try:
+        f = update.message.document
+        if f.mime_type == "application/pdf":
+            logging.info(f"[pdf] get pdf {f.file_name} {f.file_size}")
+            obj: File = await f.get_file()
+            pdf = await obj.download_as_bytearray()
+            pdf = bytes(pdf)
+            cap = update.message.caption
+            text = cap if cap is not None and text is None else text
+
+            path = f"data/{uuid.uuid4()}-{f.file_name}"
+            with open(path, "wb") as file:
+                file.write(pdf)
+            loader = PyPDFLoader(path)
+            pdf_content = ""
+            async for page in loader.alazy_load():
+                pdf_content += page.page_content
+            pdf_content = f"PDF File: {f.file_name}\nContent: {pdf_content[:min(len(pdf_content), TOTAL_PDF_LIMIT)]}"
+    except Exception:
+        pdf_content = None
 
     if (
         reply_to_message is not None
@@ -671,10 +744,14 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 history = SQLChatMessageHistory(
                     session_id=session_id, connection=sqlite_engine, async_mode=True
                 )
-                logging.info(f"History: {await history.aget_messages()}")
+                history_content = await history.aget_messages()
+                logging.info(f"History: {history_content}")
                 new_trace_id = uuid.uuid4()
+                query = {"question": text, "history": history_content}
+                if pdf_content is not None and pdf_content != "":
+                    query["pdf_content"] = [SystemMessage(content=pdf_content)]
                 stream = chain_with_history.astream(
-                    {"question": text, "history": await history.aget_messages()},
+                    query,
                     {"run_id": new_trace_id, "tags": [DEFAULT_MODEL]},
                 )
                 first_update_timestamp = None
@@ -696,6 +773,10 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 action_logs.append(
                                     ass.action.log.replace("\n", "").replace("\r", "")
                                 )
+                if pdf_messages := query.get("pdf_content", []):
+                    if pdf_messages is not None and len(pdf_messages) >= 1:
+                        pdf_m = pdf_messages[0]
+                        await history.aadd_message(pdf_m)
                 await history.aadd_message(HumanMessage(content=text))
                 await history.aadd_message(AIMessage(content=reply))
                 if len(action_logs) > 0:
@@ -796,7 +877,9 @@ if __name__ == "__main__":
         )
         application.add_handler(
             MessageHandler(
-                (filters.TEXT | filters.PHOTO) & (~filters.COMMAND), reply_handler
+                (filters.TEXT | filters.PHOTO | filters.Document.PDF)
+                & (~filters.COMMAND),
+                reply_handler,
             )
         )
         application.add_handler(CommandHandler("ping", ping))
