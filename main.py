@@ -3,6 +3,7 @@ import base64
 import json
 import os
 import logging
+import re
 import shelve
 import time
 import traceback
@@ -15,6 +16,7 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
+from telegram.constants import ParseMode
 import openai
 from telegram.error import RetryAfter, NetworkError, BadRequest
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -274,6 +276,25 @@ async def set_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+def message_markdown_parse(text: str) -> str:
+    ss = text.split("\n")
+    text_parse = ""
+    for x in ss:
+        tmp_x = re.sub(r'[_*[\]()~>#\+\-=|{}.!]', lambda x: '\\' + x.group(), x)
+        if tmp_x.startswith("\\#"):
+            tmp_x = f"*{tmp_x}*"
+        elif tmp_x.startswith("\\>"):
+            tmp_x = f"> {tmp_x[2:]}"
+        else: 
+            tmp_xx = re.sub(r'\\\*\\\*.+\\\*\\\*', lambda x: '*' + x.group() + '*', tmp_x)
+            if tmp_xx != tmp_x:
+                tmp_x = tmp_xx
+            else:
+                tmp_x = re.sub(r'\\\*.+\\\*', lambda x: '_' + x.group() + '_', tmp_x)
+        text_parse += tmp_x + "\n"
+    return text_parse
+
+
 @retry()
 @ensure_interval()
 async def send_message(chat_id, text, reply_to_message_id):
@@ -283,12 +304,25 @@ async def send_message(chat_id, text, reply_to_message_id):
         reply_to_message_id,
         text,
     )
-    msg = await application.bot.send_message(
-        chat_id,
-        text,
-        reply_to_message_id=reply_to_message_id,
-        disable_web_page_preview=True,
-    )
+    try:
+        text_parse = message_markdown_parse(text)
+
+        msg = await application.bot.send_message(
+            chat_id,
+            text_parse,
+            reply_to_message_id=reply_to_message_id,
+            disable_web_page_preview=True,
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+    except ValueError or BadRequest as e:
+        logging.warning(f"Fallback to text mode: {e}")
+        msg = await application.bot.send_message(
+            chat_id,
+            text,
+            reply_to_message_id=reply_to_message_id,
+            disable_web_page_preview=True,
+        )
+    
     logging.info(
         "Message sent: chat_id=%r, reply_to_message_id=%r, message_id=%r",
         chat_id,
@@ -305,12 +339,24 @@ async def edit_message(chat_id, text, message_id):
         "Editing message: chat_id=%r, message_id=%r, text=%r", chat_id, message_id, text
     )
     try:
-        await application.bot.edit_message_text(
-            text,
-            chat_id=chat_id,
-            message_id=message_id,
-            disable_web_page_preview=True,
-        )
+        try:
+            text_parse = message_markdown_parse(text)
+
+            await application.bot.edit_message_text(
+                text_parse,
+                chat_id=chat_id,
+                message_id=message_id,
+                disable_web_page_preview=True,
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+        except ValueError or BadRequest as e:
+            logging.warning(f"Fallback to text mode: {e}")
+            await application.bot.edit_message_text(
+                text,
+                chat_id=chat_id,
+                message_id=message_id,
+                disable_web_page_preview=True,
+            )
     except BadRequest as e:
         if (
             e.message
