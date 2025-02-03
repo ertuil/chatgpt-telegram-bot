@@ -648,8 +648,10 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pdf = bytes(pdf)
             cap = update.message.caption
             text = cap if cap is not None and text is None else text
+            if not os.path.exists("data/upload"):
+                os.makedirs("data/upload")
 
-            path = f"data/{uuid.uuid4()}-{f.file_name}"
+            path = f"data/upload/{uuid.uuid4()}-{f.file_name}"
             with open(path, "wb") as file:
                 file.write(pdf)
             loader = PyPDFLoader(path)
