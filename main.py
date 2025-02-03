@@ -368,6 +368,7 @@ async def edit_message(chat_id, text, message_id):
             await application.bot.edit_message_text(
                 text_parse,
                 chat_id=chat_id,
+                message_id=message_id,
                 disable_web_page_preview=True,
                 parse_mode=ParseMode.MARKDOWN_V2,
             )
