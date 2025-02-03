@@ -21,12 +21,13 @@ import openai
 from telegram.error import RetryAfter, NetworkError, BadRequest
 from sqlalchemy.ext.asyncio import create_async_engine
 from langchain_community.chat_message_histories import SQLChatMessageHistory
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from deepseek import ChatDeepSeek
 from langchain_core.output_parsers import StrOutputParser
 from langchain_google_community import GoogleSearchAPIWrapper
+from langchain_community.document_loaders import PyPDFLoader
 import langsmith
 from dotenv import load_dotenv
 
@@ -44,6 +45,8 @@ TOTAL_WEB_LIMIT = os.environ.get("TOTAL_WEB_LIMIT", 4000)
 TOTAL_WEB_LIMIT = int(TOTAL_WEB_LIMIT)
 TOTAL_WEB_PAGE = os.environ.get("TOTAL_WEB_PAGE", 5)
 TOTAL_WEB_PAGE = int(TOTAL_WEB_PAGE)
+TOTAL_PDF_LIMIT = os.environ.get("TOTAL_PDF_LIMIT", 60000)
+TOTAL_PDF_LIMIT = int(TOTAL_PDF_LIMIT)
 
 TELEGRAM_LENGTH_LIMIT = 4096
 TELEGRAM_MIN_INTERVAL = 3
@@ -489,6 +492,7 @@ async def get_model(
                 f"You are a helpful DeepSeek Telegram bot. Answer as concisely as possible. Current Beijing Time: f{current_time}",
             ),
             MessagesPlaceholder(variable_name="history", optional=True),
+            MessagesPlaceholder(variable_name="pdf_content", optional=True),
             ("human", "{question}"),
             MessagesPlaceholder(variable_name="agent_scratchpad", optional=True),
         ]
@@ -533,6 +537,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_to_id = None
     session_id = None
     model = DEFAULT_MODEL
+    pdf_content = None
 
     try:
         p = update.message.photo[-1]
@@ -544,6 +549,28 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = cap if cap is not None and text is None else text
     except Exception:
         image = None
+
+    try:
+        f = update.message.document
+        if f.mime_type == "application/pdf":
+            logging.info(f"[pdf] get pdf {f.file_name} {f.file_size}")
+            obj: File = await f.get_file()
+            pdf = await obj.download_as_bytearray()
+            pdf = bytes(pdf)
+            cap = update.message.caption
+            text = cap if cap is not None and text is None else text
+
+            path = f"data/{uuid.uuid4()}-{f.file_name}"
+            with open(path, "wb") as file:
+                file.write(pdf)
+            loader = PyPDFLoader(path)
+            pdf_content = ""
+            async for page in loader.alazy_load():
+                pdf_content += page.page_content
+            pdf_content = f"PDF File: {f.file_name}\nContent: {pdf_content[:min(len(pdf_content), TOTAL_PDF_LIMIT)]}"
+    except Exception:
+        pdf_content = None
+
 
     if (
         reply_to_message is not None
@@ -631,10 +658,14 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 history = SQLChatMessageHistory(
                     session_id=session_id, connection=sqlite_engine, async_mode=True
                 )
-                logging.info(f"History: {await history.aget_messages()}")
+                history_content = await history.aget_messages()
+                logging.info(f"History: {history_content}")
                 new_trace_id = uuid.uuid4()
+                query = {"question": text, "history": history_content}
+                if pdf_content is not None and pdf_content != "":
+                    query["pdf_content"] = [SystemMessage(content=pdf_content)]
                 stream = chain_with_history.astream(
-                    {"question": text, "history": await history.aget_messages()},
+                    query,
                     {"run_id": new_trace_id, "tags": [DEFAULT_MODEL]},
                 )
                 first_update_timestamp = None
@@ -658,6 +689,10 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         >= first_update_timestamp + FIRST_BATCH_DELAY
                     ):
                         await replymsgs.update(think + reply + " [!Generating...]")
+                if pdf_messages := query.get("pdf_content", []):
+                    if pdf_messages is not None and len(pdf_messages) >= 1:
+                        pdf_m = pdf_messages[0]
+                        await history.aadd_message(pdf_m)
                 await history.aadd_message(HumanMessage(content=text))
                 await history.aadd_message(AIMessage(content=reply))
                 if len(action_logs) > 0:
@@ -758,7 +793,9 @@ if __name__ == "__main__":
         )
         application.add_handler(
             MessageHandler(
-                (filters.TEXT | filters.PHOTO) & (~filters.COMMAND), reply_handler
+                (filters.TEXT | filters.PHOTO | filters.Document.PDF)
+                & (~filters.COMMAND),
+                reply_handler,
             )
         )
         application.add_handler(CommandHandler("ping", ping))
