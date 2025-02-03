@@ -6,9 +6,7 @@ import logging
 import shelve
 import time
 import traceback
-from typing import Any, Dict, Union
 import uuid
-import aiohttp
 from telegram import File, Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -18,34 +16,17 @@ from telegram.ext import (
     ContextTypes,
 )
 import openai
-from telegram.ext._application import BT
 from telegram.error import RetryAfter, NetworkError, BadRequest
 from sqlalchemy.ext.asyncio import create_async_engine
 from langchain_community.chat_message_histories import SQLChatMessageHistory
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_openai import ChatOpenAI
-from langchain_core.tools import Tool
+from deepseek import ChatDeepSeek
 from langchain_core.output_parsers import StrOutputParser
-from langchain_community.tools import (
-    DuckDuckGoSearchRun,
-    ArxivQueryRun,
-    WikipediaQueryRun,
-    WolframAlphaQueryRun,
-)
-from langchain_community.agent_toolkits.openapi.toolkit import RequestsToolkit
 from langchain_google_community import GoogleSearchAPIWrapper
-from langchain_community.utilities import (
-    WikipediaAPIWrapper,
-    WolframAlphaAPIWrapper,
-    DuckDuckGoSearchAPIWrapper,
-    TextRequestsWrapper,
-)
 import langsmith
 from dotenv import load_dotenv
-from bs4 import BeautifulSoup
 
 load_dotenv()
 sqlite_engine = create_async_engine(
@@ -466,7 +447,7 @@ async def get_model(
             MessagesPlaceholder(variable_name="agent_scratchpad", optional=True),
         ]
     )
-    llm = ChatOpenAI(
+    llm = ChatDeepSeek(
         model=model,
         base_url=OPENAI_BASE_URL,
         streaming=True,
@@ -488,7 +469,7 @@ async def get_model(
 
 async def get_vision_model(model: str = VISION_MODEL):
     llm = (
-        ChatOpenAI(
+        ChatDeepSeek(
             model=model, base_url=OPENAI_BASE_URL, streaming=True, temperature=0.7
         )
         | StrOutputParser()
@@ -598,6 +579,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     error_cnt = 0
     while True:
         reply = ""
+        think = ""
         async with BotReplyMessages(chat_id, msg_id, f"[{model}] ") as replymsgs:
             try:
                 history = SQLChatMessageHistory(
@@ -613,15 +595,23 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 action_logs = []
                 async for delta in stream:
                     logging.debug(f"debug delta: {delta}")
+                    rv = delta.additional_kwargs.get("reasoning_content", "")
                     v = delta.content
-                    reply += v
+                    if rv != "":
+                        if think == "":
+                            think = "【思考】"
+                        think += rv
+                    if v != "":
+                        if not think.endswith("【回复】") and think != "":
+                            think += "\n【回复】"
+                        reply += v
                     if first_update_timestamp is None:
                         first_update_timestamp = time.time()
                     if (
                         time.time()
                         >= first_update_timestamp + FIRST_BATCH_DELAY
                     ):
-                        await replymsgs.update(reply + " [!Generating...]")
+                        await replymsgs.update(think + reply + " [!Generating...]")
                 await history.aadd_message(HumanMessage(content=text))
                 await history.aadd_message(AIMessage(content=reply))
                 if len(action_logs) > 0:
@@ -634,7 +624,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             reply += f"\n日志地址：{share_url}"
                     except Exception as e:
                         logging.warning(f"get log error: {e}")
-                await replymsgs.update(reply)
+                await replymsgs.update(think + reply)
                 await replymsgs.finalize()
                 key = repr(("session", chat_id, replymsgs.replied_msgs[0][0]))
                 db[key] = session_id
@@ -693,7 +683,7 @@ if __name__ == "__main__":
     )
 
     rootLogger = logging.getLogger()
-    rootLogger.setLevel(logging.INFO)
+    rootLogger.setLevel(logging.DEBUG)
 
     fileHandler = logging.FileHandler("chatgpt-telegram-bot.log")
     fileHandler.setFormatter(logFormatter)
