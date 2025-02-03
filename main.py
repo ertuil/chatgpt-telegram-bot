@@ -68,7 +68,7 @@ TOTAL_WEB_PAGE = int(TOTAL_WEB_PAGE)
 TOTAL_PDF_LIMIT = os.environ.get("TOTAL_PDF_LIMIT", 60000)
 TOTAL_PDF_LIMIT = int(TOTAL_PDF_LIMIT)
 
-TELEGRAM_LENGTH_LIMIT = 4096
+TELEGRAM_LENGTH_LIMIT = 4000
 TELEGRAM_MIN_INTERVAL = 3
 OPENAI_MAX_RETRY = 3
 OPENAI_RETRY_INTERVAL = 10
@@ -302,7 +302,8 @@ def message_markdown_parse(text: str) -> str:
     ss = text.split("\n")
     text_parse = ""
     for x in ss:
-        tmp_x = re.sub(r'[_*[\]()~>#\+\-=|{}.!]', lambda x: '\\' + x.group(), x)
+        # tmp_x = re.sub(r'[_\*\[\]\(\)\~>#\+-=\|\{\}\.\!]', lambda x: '\\' + x.group(), x)
+        tmp_x = re.sub(r"(?<!\\)(_|\*|\[|\]|\(|\)|\~|`|>|#|\+|-|=|\||\{|\}|\.|\!|\\)", lambda t: "\\"+t.group(), x)
         if tmp_x.startswith("\\#"):
             tmp_x = f"*{tmp_x}*"
         elif tmp_x.startswith("\\>"):
@@ -336,7 +337,7 @@ async def send_message(chat_id, text, reply_to_message_id):
             disable_web_page_preview=True,
             parse_mode=ParseMode.MARKDOWN_V2,
         )
-    except ValueError or BadRequest as e:
+    except Exception as e:
         logging.warning(f"Fallback to text mode: {e}")
         msg = await application.bot.send_message(
             chat_id,
