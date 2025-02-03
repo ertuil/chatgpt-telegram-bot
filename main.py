@@ -560,7 +560,9 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cap = update.message.caption
             text = cap if cap is not None and text is None else text
 
-            path = f"data/{uuid.uuid4()}-{f.file_name}"
+            if not os.path.exists("data/upload"):
+                os.makedirs("data/upload")
+            path = f"data/upload/{uuid.uuid4()}-{f.file_name}"
             with open(path, "wb") as file:
                 file.write(pdf)
             loader = PyPDFLoader(path)
@@ -568,7 +570,9 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             async for page in loader.alazy_load():
                 pdf_content += page.page_content
             pdf_content = f"PDF File: {f.file_name}\nContent: {pdf_content[:min(len(pdf_content), TOTAL_PDF_LIMIT)]}"
-    except Exception:
+            logging.info(f"[pdf] get pdf content {pdf_content}")
+    except Exception as e:
+        logging.exception(f"[pdf] get pdf error: {e}")
         pdf_content = None
 
 
