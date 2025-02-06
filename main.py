@@ -21,6 +21,7 @@ import openai
 from telegram.error import RetryAfter, NetworkError, BadRequest
 from sqlalchemy.ext.asyncio import create_async_engine
 from langchain_community.chat_message_histories import SQLChatMessageHistory
+from langchain_community.callbacks import get_openai_callback
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.history import RunnableWithMessageHistory
@@ -288,6 +289,8 @@ def message_markdown_parse(text: str) -> str:
             tmp_x = f"*{tmp_x}*"
         elif tmp_x.startswith("\\>"):
             tmp_x = f"> {tmp_x[2:]}"
+        elif tmp_x.startswith("\\`\\`\\`"):
+            tmp_x = f"```{tmp_x[6:]}"
         else: 
             tmp_xx = re.sub(r'\\\*\\\*.+\\\*\\\*', lambda x: '*' + x.group() + '*', tmp_x)
             if tmp_xx != tmp_x:
@@ -657,6 +660,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     while True:
         reply = ""
         think = ""
+        usage = ""
         async with BotReplyMessages(chat_id, msg_id, f"[{model}] ") as replymsgs:
             try:
                 history = SQLChatMessageHistory(
@@ -668,31 +672,40 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 query = {"question": text, "history": history_content}
                 if pdf_content is not None and pdf_content != "":
                     query["pdf_content"] = [SystemMessage(content=pdf_content)]
-                stream = chain_with_history.astream(
-                    query,
-                    {"run_id": new_trace_id, "tags": [DEFAULT_MODEL]},
-                )
-                first_update_timestamp = None
-                action_logs = []
-                async for delta in stream:
-                    logging.debug(f"debug delta: {delta}")
-                    rv = delta.additional_kwargs.get("reasoning_content", "")
-                    v = delta.content
-                    if rv != "":
-                        if think == "":
-                            think = "【思考】"
-                        think += rv
-                    if v != "":
-                        if not think.endswith("【回复】") and think != "":
-                            think += "\n【回复】"
-                        reply += v
-                    if first_update_timestamp is None:
-                        first_update_timestamp = time.time()
-                    if (
-                        time.time()
-                        >= first_update_timestamp + FIRST_BATCH_DELAY
-                    ):
-                        await replymsgs.update(think + reply + " [!Generating...]")
+                with get_openai_callback() as cb:
+                    stream = chain_with_history.astream(
+                        query,
+                        {"run_id": new_trace_id, "tags": [DEFAULT_MODEL]},
+                    )
+                    first_update_timestamp = None
+                    action_logs = []
+                    async for delta in stream:
+                        logging.debug(f"debug delta: {delta}")
+                        rv = delta.additional_kwargs.get("reasoning_content", "")
+                        v = delta.content
+                        if rv != "":
+                            if think == "":
+                                think = "【思考】"
+                            think += rv
+                        if v != "":
+                            if not think.endswith("【回复】") and think != "":
+                                think += "\n【回复】"
+                            reply += v
+                        if first_update_timestamp is None:
+                            first_update_timestamp = time.time()
+                        if (
+                            time.time()
+                            >= first_update_timestamp + FIRST_BATCH_DELAY
+                        ):
+                            await replymsgs.update(think + reply + " [!Generating...]")
+                    usage = f'''
+
+```
+prompt_tokens: {cb.prompt_tokens} (cached: {cb.prompt_tokens_cached})
+completion_tokens: {cb.completion_tokens}
+total_tokens: {cb.total_tokens}
+```
+                    '''
                 if pdf_messages := query.get("pdf_content", []):
                     if pdf_messages is not None and len(pdf_messages) >= 1:
                         pdf_m = pdf_messages[0]
@@ -709,7 +722,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             reply += f"\n日志地址：{share_url}"
                     except Exception as e:
                         logging.warning(f"get log error: {e}")
-                await replymsgs.update(think + reply)
+                await replymsgs.update(think + reply+usage)
                 await replymsgs.finalize()
                 key = repr(("session", chat_id, replymsgs.replied_msgs[0][0]))
                 db[key] = session_id
