@@ -26,6 +26,8 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from langchain_community.chat_message_histories import SQLChatMessageHistory
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_community.callbacks import get_openai_callback
+from langchain_core.tools.convert import tool
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_openai import ChatOpenAI
@@ -50,6 +52,7 @@ import langsmith
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 import uuid
+import random
 
 load_dotenv()
 sqlite_engine = create_async_engine(
@@ -308,6 +311,8 @@ def message_markdown_parse(text: str) -> str:
             tmp_x = f"*{tmp_x}*"
         elif tmp_x.startswith("\\>"):
             tmp_x = f"> {tmp_x[2:]}"
+        elif tmp_x.startswith("\\`\\`\\`"):
+            tmp_x = f"```{tmp_x[6:]}"
         else: 
             tmp_xx = re.sub(r'\\\*\\\*.+\\\*\\\*', lambda x: '*' + x.group() + '*', tmp_x)
             if tmp_xx != tmp_x:
@@ -373,7 +378,7 @@ async def edit_message(chat_id, text, message_id):
                 disable_web_page_preview=True,
                 parse_mode=ParseMode.MARKDOWN_V2,
             )
-        except ValueError or BadRequest as e:
+        except Exception as e:
             logging.warning(f"Fallback to text mode: {e}")
             await application.bot.edit_message_text(
                 text,
@@ -502,6 +507,17 @@ class GoogleSearchAPIWrapperSelf(GoogleSearchAPIWrapper):
         return json.dumps(metadata_results, ensure_ascii=False)
 
 
+@tool(parse_docstring=True)
+def RandomTool(low: int, high: int) -> str:
+    """Get a random number between low and high. It can be used in DND Games for checks or battles.
+
+    Args:
+        low: The low bound.
+        high: The high bound.
+    """
+    x = random.randint(low, high)
+    return str(x)
+
 async def get_model(
     model: str = DEFAULT_MODEL, language: str = "en"
 ) -> RunnableWithMessageHistory:
@@ -522,10 +538,13 @@ async def get_model(
         model=model,
         base_url=OPENAI_BASE_URL,
         streaming=True,
+        stream_usage=True,
         temperature=0.7,
         cache=False,
     )
+
     tools = [
+        RandomTool,
         ArxivQueryRun(),
         WikipediaQueryRun(
             api_wrapper=WikipediaAPIWrapper(doc_content_chars_max=TOTAL_WEB_LIMIT)
@@ -609,7 +628,7 @@ async def get_model(
 async def get_vision_model(model: str = VISION_MODEL):
     llm = (
         ChatOpenAI(
-            model=model, base_url=OPENAI_BASE_URL, streaming=True, temperature=0.7
+            model=model, base_url=OPENAI_BASE_URL, streaming=True, stream_usage=True, temperature=0.7
         )
         | StrOutputParser()
     )
@@ -743,6 +762,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     error_cnt = 0
     while True:
         reply = ""
+        usage = ""
         async with BotReplyMessages(chat_id, msg_id, f"[{model}] ") as replymsgs:
             try:
                 history = SQLChatMessageHistory(
@@ -754,29 +774,38 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 query = {"question": text, "history": history_content}
                 if pdf_content is not None and pdf_content != "":
                     query["pdf_content"] = [SystemMessage(content=pdf_content)]
-                stream = chain_with_history.astream(
-                    query,
-                    {"run_id": new_trace_id, "tags": [DEFAULT_MODEL]},
-                )
-                first_update_timestamp = None
-                action_logs = []
-                async for delta in stream:
-                    logging.debug(f"debug delta: {delta}")
-                    for k, v in delta.items():
-                        if k == "output":
-                            reply += v
-                            if first_update_timestamp is None:
-                                first_update_timestamp = time.time()
-                            if (
-                                time.time()
-                                >= first_update_timestamp + FIRST_BATCH_DELAY
-                            ):
-                                await replymsgs.update(reply + " [!Generating...]")
-                        if k == "steps":
-                            for ass in v:
-                                action_logs.append(
-                                    ass.action.log.replace("\n", "").replace("\r", "")
-                                )
+                
+                with get_openai_callback() as cb:
+                    stream = chain_with_history.astream(
+                        query,
+                        {"run_id": new_trace_id, "tags": [DEFAULT_MODEL]},
+                    )
+                    first_update_timestamp = None
+                    action_logs = []
+                    async for delta in stream:
+                        logging.debug(f"debug delta: {delta}")
+                        for k, v in delta.items():
+                            if k == "output":
+                                reply += v
+                                if first_update_timestamp is None:
+                                    first_update_timestamp = time.time()
+                                if (
+                                    time.time()
+                                    >= first_update_timestamp + FIRST_BATCH_DELAY
+                                ):
+                                    await replymsgs.update(reply + " [!Generating...]")
+                            if k == "steps":
+                                for ass in v:
+                                    action_logs.append(
+                                        ass.action.log.replace("\n", "").replace("\r", "")
+                                    )
+                    usage = f'''
+```
+prompt_tokens: {cb.prompt_tokens} (cached: {cb.prompt_tokens_cached})
+completion_tokens: {cb.completion_tokens}
+total_tokens: {cb.total_tokens}
+```
+                    '''
                 if pdf_messages := query.get("pdf_content", []):
                     if pdf_messages is not None and len(pdf_messages) >= 1:
                         pdf_m = pdf_messages[0]
@@ -793,7 +822,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             reply += f"\n日志地址：{share_url}"
                     except Exception as e:
                         logging.warning(f"get log error: {e}")
-                await replymsgs.update(reply)
+                await replymsgs.update(reply + usage)
                 await replymsgs.finalize()
                 key = repr(("session", chat_id, replymsgs.replied_msgs[0][0]))
                 db[key] = session_id
