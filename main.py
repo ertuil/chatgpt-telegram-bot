@@ -1,16 +1,12 @@
 import asyncio
-import base64
-import json
 import os
 import logging
 import re
 import shelve
 import time
 import traceback
-from typing import Any, Dict, Union
 import uuid
-import aiohttp
-from telegram import File, Update
+from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -24,33 +20,16 @@ from telegram.error import RetryAfter, NetworkError, BadRequest
 from telegram.constants import ParseMode
 from sqlalchemy.ext.asyncio import create_async_engine
 from langchain_community.chat_message_histories import SQLChatMessageHistory
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_community.callbacks import get_openai_callback
 from langchain_core.tools.convert import tool
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_openai import ChatOpenAI
-from langchain_core.tools import Tool
 from langchain_core.output_parsers import StrOutputParser
-from langchain_community.tools import (
-    DuckDuckGoSearchRun,
-    ArxivQueryRun,
-    WikipediaQueryRun,
-    WolframAlphaQueryRun,
-)
-from langchain_community.agent_toolkits.openapi.toolkit import RequestsToolkit
-from langchain_google_community import GoogleSearchAPIWrapper
-from langchain_community.utilities import (
-    WikipediaAPIWrapper,
-    WolframAlphaAPIWrapper,
-    DuckDuckGoSearchAPIWrapper,
-    TextRequestsWrapper,
-)
-from langchain_community.document_loaders import PyPDFLoader
 import langsmith
 from dotenv import load_dotenv
-from bs4 import BeautifulSoup
 import uuid
 import random
 
@@ -489,24 +468,6 @@ def is_chinese(string):
     return False
 
 
-class GoogleSearchAPIWrapperSelf(GoogleSearchAPIWrapper):
-    def run(self, query: str) -> str:
-        """Run query through GoogleSearch and parse result."""
-        metadata_results = []
-        results = self._google_search_results(query, num=self.k)
-        if len(results) == 0:
-            return "No good Google Search Result was found"
-        for result in results:
-            metadata_result = {
-                "title": result["title"],
-                "link": result["link"],
-            }
-            if "snippet" in result:
-                metadata_result["snippet"] = result["snippet"]
-            metadata_results.append(metadata_result)
-        return json.dumps(metadata_results, ensure_ascii=False)
-
-
 @tool(parse_docstring=True)
 def RandomTool(low: int, high: int) -> str:
     """Get a random number between low and high. It can be used in DND Games for checks or battles.
@@ -526,7 +487,25 @@ async def get_model(
         [
             (
                 "system",
-                f"You are a helpful ChatGPT Telegram bot. Answer as concisely as possible. Current Beijing Time: f{current_time}",
+                """期待你跟我一起跑团，你来当DM，通过我的想象来推动故事发展，我对你提出以下几点要求：
+1.将故事中发生的一切事件转化为属性值的检定，检定必须调用RandomTool函数投骰子，战斗时也必须使用RandomTool函数。
+2.辅助我构建好角色，并选择好剧本，人物特性等按照dnd5e规则
+3.当开始冒险时候，请提前构思好故事主线，故事可以不告诉我，但是可以提供一些背景信息。故事要有趣有梗，充满想象力。故事要足够有深度，要有阴谋诡计，就像现实世界，也要塑造立体的角色，提醒你通过话语和事件等塑造角色形象。
+4.要足够公平，我以后可能会有过不去的检定，过不去就可以让我的角色遭受过不去的惩罚
+5.要严格按照dnd5e规则，以dnd5e规则为主。当我的话语严重与规则不符时，你要提醒我，如不是法师但抄法表，然后制止我，不用迁就我，请明白，这里只有你懂规则。
+6.你要根据上下文来合理制定检定的难度与属性值要求，通过检定后要给予一定的xp奖励
+7.检定是指过d20，既投一个20面骰，用到1-20的随机数。过检定时要说出我的数值，加值与检定难度，方便我判断是否要进行检定。
+8.你需要加强记忆，记住我跑团时的一切事物，我举一个例子，如我的装备与上边附带的附魔效果，注意这只是例子，在真正的跑团途中你还会遇到很多需要记忆的事物，你需要严格记录
+9.剧情方面你可以参考dnd的剧本，但故事走向更多取决于我们的对话，你是最棒的人工智能，相信你可以做到的
+10.合理设置所获得的装备法术效果等，如火焰大剑增加1d4的火焰伤害等，我也可以出售物品，这需要你构建一个合理的经济系统（当然如魅力游说高会有折扣）
+11.法术需要法术位来施放
+12.在游玩过程中我偶尔会指示你哪里过检定时使用的属性点是错误的，你需改正并从中学习
+13.注意记录角色升级的经验，人物的HP，GP和每件物品。
+14.注意当有选项供我选择，举例如预备法表时展示所有法术供我选择，种族（包括拓展种族）等类似，要用1234等序号标识方便我选择，注意不能使用你的推荐来省略
+15.当有多名玩家时，需要区别是否在战斗。如果不在战斗，则可以向多个玩家同时提出选项，并识别不同玩家的行为；当在战斗的时候，依据先攻顺序确定玩家行动次序。
+16.当玩家输入“info”时，需要详细当前所有人物的状态、数值、属性、职业、阵营、装备、物品、xp、gp、hp等信息，以及详细总结当前世界观、获得情报和故事进展。故事分为多个章节，可以简要汇报以前章节内容，但详细告知当前章节信息和进度。
+17.如果让你托管一些团队成员，请你根据他们的职业和阵营。有时，请自动生成他们的行为或语言。
+18.充分理解后回答我“欢迎来到地下城”""",
             ),
             MessagesPlaceholder(variable_name="history", optional=True),
             MessagesPlaceholder(variable_name="pdf_content", optional=True),
@@ -545,83 +524,11 @@ async def get_model(
 
     tools = [
         RandomTool,
-        ArxivQueryRun(),
-        WikipediaQueryRun(
-            api_wrapper=WikipediaAPIWrapper(doc_content_chars_max=TOTAL_WEB_LIMIT)
-        ),
     ]
-
-    if (
-        os.environ.get("GOOGLE_CSE_ID", None) is None
-        or os.environ.get("GOOGLE_API_KEY", None) is None
-    ):
-        tools.append(
-            DuckDuckGoSearchRun(
-                api_wrapper=DuckDuckGoSearchAPIWrapper(max_results=TOTAL_WEB_PAGE)
-            )
-        )
-    else:
-        search_wrapper = GoogleSearchAPIWrapperSelf(k=TOTAL_WEB_PAGE)
-        google_search = Tool(
-            name="google_search",
-            description="Search Google for recent results.",
-            func=search_wrapper.run,
-        )
-        tools.append(google_search)
-
-    if os.environ.get("WOLFRAM_ALPHA_APPID", None) is not None:
-        tools.append(
-            WolframAlphaQueryRun(
-                api_wrapper=WolframAlphaAPIWrapper(
-                    wolfram_alpha_appid=os.environ.get("WOLFRAM_ALPHA_APPID")
-                )
-            )
-        )
-
-    class SmallSizeRequestsWrapper(TextRequestsWrapper):
-        async def _aget_resp_content(
-            self, response: aiohttp.ClientResponse
-        ) -> Union[str, Dict[str, Any]]:
-            if self.response_content_type == "text":
-                content = await response.text()
-                if response.content_type == "text/html":
-                    dom = BeautifulSoup(content, "html.parser")
-                    result = ""
-                    element = dom.find("title")
-                    if element is not None:
-                        result += element.get_text() + "\n"
-                    text = dom.get_text(separator="\t", strip=True)
-                    result += text[: min(len(text), TOTAL_WEB_LIMIT)]
-                    return result
-                if len(content) > TOTAL_WEB_LIMIT:
-                    return content[:TOTAL_WEB_LIMIT]
-                return content
-            elif self.response_content_type == "json":
-                return await response.json()
-            else:
-                raise ValueError(f"Invalid return type: {self.response_content_type}")
-
-    toolkit = RequestsToolkit(
-        requests_wrapper=SmallSizeRequestsWrapper(
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"
-            }
-        ),
-        allow_dangerous_requests=True,
-    )
-    tools.append(toolkit.get_tools()[0])
 
     agent = create_tool_calling_agent(llm, tools, prompt)
     agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
-    chain = agent_executor  # | StrOutputParser()
-    # chain_with_history = RunnableWithMessageHistory(
-    #     chain,
-    #     lambda session_id: SQLChatMessageHistory(
-    #         session_id=session_id, connection=sqlite_engine, async_mode=True
-    #     ),
-    #     input_messages_key="question",
-    #     history_messages_key="history",
-    # ) | StrOutputParser()
+    chain = agent_executor
     return chain
 
 
@@ -645,42 +552,6 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_to_id = None
     session_id = None
     model = DEFAULT_MODEL
-
-    pdf_content = None
-
-    try:
-        p = update.message.photo[-1]
-        logging.info(f"[photo] get photo {p.file_size} {p.width}x{p.height}")
-        obj: File = await p.get_file()
-        image = await obj.download_as_bytearray()
-        image = bytes(image)
-        cap = update.message.caption
-        text = cap if cap is not None and text is None else text
-    except Exception:
-        image = None
-
-    try:
-        f = update.message.document
-        if f.mime_type == "application/pdf":
-            logging.info(f"[pdf] get pdf {f.file_name} {f.file_size}")
-            obj: File = await f.get_file()
-            pdf = await obj.download_as_bytearray()
-            pdf = bytes(pdf)
-            cap = update.message.caption
-            text = cap if cap is not None and text is None else text
-            if not os.path.exists("data/upload"):
-                os.makedirs("data/upload")
-
-            path = f"data/upload/{uuid.uuid4()}-{f.file_name}"
-            with open(path, "wb") as file:
-                file.write(pdf)
-            loader = PyPDFLoader(path)
-            pdf_content = ""
-            async for page in loader.alazy_load():
-                pdf_content += page.page_content
-            pdf_content = f"PDF File: {f.file_name}\nContent: {pdf_content[:min(len(pdf_content), TOTAL_PDF_LIMIT)]}"
-    except Exception:
-        pdf_content = None
 
     if (
         reply_to_message is not None
@@ -717,47 +588,6 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session_id,
     )
     chain_with_history = await get_model(model=model)
-    if image is not None:
-        image_b64 = base64.b64encode(image).decode("ascii")
-        current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-        prompt = [
-            (
-                "system",
-                f"You are a helpful ChatGPT Telegram bot. Answer as concisely as possible. Current Beijing Time: {current_time}",
-            ),
-            HumanMessage(
-                content=[
-                    {"type": "text", "text": text},
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
-                    },
-                ]
-            ),
-        ]
-        vision_model = await get_vision_model(model=VISION_MODEL)
-        async with BotReplyMessages(chat_id, msg_id, f"[{model}] ") as replymsgs:
-            try:
-                reply = await vision_model.ainvoke(prompt)
-                history = SQLChatMessageHistory(
-                    session_id=session_id, connection=sqlite_engine, async_mode=True
-                )
-                logging.info(f"History: {await history.aget_messages()}")
-                await history.aadd_message(HumanMessage(content=text))
-                await history.aadd_message(AIMessage(content=reply))
-                await replymsgs.update(reply)
-                await replymsgs.finalize()
-                key = repr(("session", chat_id, replymsgs.replied_msgs[0][0]))
-                db[key] = session_id
-                logging.debug(f"insert session chat_id{key}: {session_id}")
-            except Exception as e:
-                logging.exception(
-                    "Error (chat_id=%r, msg_id=%r): %s",
-                    chat_id,
-                    msg_id,
-                    e,
-                )
-        return
 
     error_cnt = 0
     while True:
@@ -772,8 +602,6 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logging.info(f"History: {history_content}")
                 new_trace_id = uuid.uuid4()
                 query = {"question": text, "history": history_content}
-                if pdf_content is not None and pdf_content != "":
-                    query["pdf_content"] = [SystemMessage(content=pdf_content)]
                 
                 with get_openai_callback() as cb:
                     stream = chain_with_history.astream(
@@ -796,20 +624,31 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     await replymsgs.update(reply + " [!Generating...]")
                             if k == "steps":
                                 for ass in v:
+                                    step_action: str = ass.action.log
+                                    idx = step_action.find("responded:")
+                                    if idx != -1:
+                                        respond = step_action[min(idx + 10,len(step_action)):]
+                                        step_action = step_action[:idx]
+                                        step_action = step_action.replace("\n", "").replace("\r", "")
+                                        reply += respond
+                                        if first_update_timestamp is None:
+                                            first_update_timestamp = time.time()
+                                        if (
+                                            time.time()
+                                            >= first_update_timestamp + FIRST_BATCH_DELAY
+                                        ):
+                                            await replymsgs.update(reply + " [!Generating...]")
                                     action_logs.append(
-                                        ass.action.log.replace("\n", "").replace("\r", "")
+                                        step_action.strip()
                                     )
                     usage = f'''
 ```
 prompt_tokens: {cb.prompt_tokens} (cached: {cb.prompt_tokens_cached})
 completion_tokens: {cb.completion_tokens}
 total_tokens: {cb.total_tokens}
+total_cost: {cb.total_cost}
 ```
                     '''
-                if pdf_messages := query.get("pdf_content", []):
-                    if pdf_messages is not None and len(pdf_messages) >= 1:
-                        pdf_m = pdf_messages[0]
-                        await history.aadd_message(pdf_m)
                 await history.aadd_message(HumanMessage(content=text))
                 await history.aadd_message(AIMessage(content=reply))
                 if len(action_logs) > 0:

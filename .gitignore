@@ -6,3 +6,4 @@ data/*
 !data/.gitkeep
 db
 docker-compose.yml
+.vscode
