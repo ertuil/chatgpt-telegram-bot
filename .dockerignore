@@ -5,3 +5,4 @@ data
 .env
 db
 docker-compose.yml
+.vscode

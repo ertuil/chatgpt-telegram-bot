@@ -796,14 +796,29 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     await replymsgs.update(reply + " [!Generating...]")
                             if k == "steps":
                                 for ass in v:
+                                    step_action: str = ass.action.log
+                                    idx = step_action.find("responded:")
+                                    if idx != -1:
+                                        respond = step_action[min(idx + 10,len(step_action)):]
+                                        step_action = step_action[:idx]
+                                        step_action = step_action.replace("\n", "").replace("\r", "")
+                                        reply += respond
+                                        if first_update_timestamp is None:
+                                            first_update_timestamp = time.time()
+                                        if (
+                                            time.time()
+                                            >= first_update_timestamp + FIRST_BATCH_DELAY
+                                        ):
+                                            await replymsgs.update(reply + " [!Generating...]")
                                     action_logs.append(
-                                        ass.action.log.replace("\n", "").replace("\r", "")
+                                        step_action.strip()
                                     )
                     usage = f'''
 ```
 prompt_tokens: {cb.prompt_tokens} (cached: {cb.prompt_tokens_cached})
 completion_tokens: {cb.completion_tokens}
 total_tokens: {cb.total_tokens}
+total_cost: {cb.total_cost}
 ```
                     '''
                 if pdf_messages := query.get("pdf_content", []):
