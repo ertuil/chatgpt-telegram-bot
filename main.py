@@ -20,7 +20,7 @@ from telegram.error import RetryAfter, NetworkError, BadRequest
 from telegram.constants import ParseMode
 from sqlalchemy.ext.asyncio import create_async_engine
 from langchain_community.chat_message_histories import SQLChatMessageHistory
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_community.callbacks import get_openai_callback
 from langchain_core.tools.convert import tool
@@ -56,6 +56,24 @@ OPENAI_MAX_RETRY = 3
 OPENAI_RETRY_INTERVAL = 10
 FIRST_BATCH_DELAY = 1
 VISION_MODEL = "gpt-4o-2024-11-20"
+
+STORY_PARAMETER = {
+    "RANDOM": 0.3,
+    "CHANGE": 0.05,
+    "DARK": 0.05,
+    "TALK": 0.1,
+    "DIFFICULT": 0.6,
+    "LUCKY": 0.05,
+    "MIND": 0.1,
+}
+
+STORY_DIFFICULT_MAP = [
+    "当前游戏难度：【新手】。战斗时敌人难度略弱与团队。Boss敌人等级可以和团队等级低1级；团体精英等级可以和团队等级-1/-2级，杂兵等级可以-2/-3级。敌人的武器、技能和法术应当合理，不应当过强或过弱。存在一些简单的机关。",
+    "当前游戏难度：【简单】。战斗时敌人难度和团队相等，但不应当过弱，以保持游戏的紧张感。Boss敌人等级可以和团队等级相当；团体精英等级可以和团队等级相等，普通敌人等级可以-1级。敌人的武器、技能和法术应当合理，不应当过强或过弱。存在一些简单的机关和谜题，但不应当过难。",
+    "当前游戏难度：【普通】。战斗时Boss敌人难度比团队+1级，以保持游戏的紧张感。团体战精英等级可以和团队等级相当，杂兵等级可以-1级。精英敌人具有一些的武器、法术和道具，不应当过强或过弱。存在一些低/中等伤害的机关和复杂谜题，但不应当过难。",
+    "当前游戏难度：【困难】。战斗时Boss敌人难度比团队+1/+2级，以保持游戏的紧张感。单体敌人等级可以和团队等级比团队+1/+2级；团体敌人Boss等级比团队等级+1/+2级，杂兵等级和团队相当。精英敌人具有丰富的武器、法术和道具，不应当过强或过弱。存在一些中高伤害的机关和复杂谜题，但不应当过难。存在一些可以利用的环境机关。",
+    "当前游戏难度：【极难】。战斗时Boss敌人难度比团队+1/+2/+3级，以保持游戏的紧张感。单体敌人等级和团队等级比团队+1/+2级；团体敌人Boss等级比团队等级+1/+2级，杂兵等级和团队相当。精英敌人具有丰富的武器、法术和道具，Boss敌人具有强大的武器、法术、道具和防御机制，但不应当过强。存在一些中高伤害的机关和复杂谜题，但不应当过难。存在一些可以利用的环境机关。"
+]
 
 telegram_last_timestamp = None
 telegram_rate_limit_lock = asyncio.Lock()
@@ -280,6 +298,78 @@ async def set_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update.effective_chat.id, f"Model set to {message}", update.message.message_id
     )
 
+
+@only_admin
+async def set_parameter(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global STORY_PARAMETER
+
+    message = update.message.text
+    message = message.replace("/parameter", "").strip()
+    if message == "":
+        await send_message(
+            update.effective_chat.id,
+            f"Current parameter is RANDOM: {STORY_PARAMETER}, please give me the parameter. \n {get_difficult()}",
+            update.message.message_id,
+        )
+        return
+    try:
+        value_list = map(float, message.split())
+        kv_list = zip(["RANDOM", "CHANGE", "DARK", "TALK", "DIFFICULT", "LUCKY", "MIND"], value_list)
+        for key, value in kv_list:
+            STORY_PARAMETER[key] = value
+        await send_message(
+            update.effective_chat.id,
+            f"Parameter set to PARAMETER: {STORY_PARAMETER}. \n {get_difficult()}",
+            update.message.message_id,
+        )
+    except Exception as e:
+        await send_message(
+            update.effective_chat.id,
+            f"Parameter error: {e}",
+            update.message.message_id,
+        )
+
+def get_parameter() -> str:
+    ret_msg = ""
+    x1, x2, x3, x4, x5, x6, x7 = random.random(), random.random(), random.random(), random.random(), random.random(), random.random(), random.random()
+    if x1 <= STORY_PARAMETER["RANDOM"]:
+        ret_msg += "接下来所有战斗和检定请使用RandomTool函数产生随机数。"
+        logging.info("触发随机数加强")
+    if x2 <= STORY_PARAMETER["CHANGE"]:
+        ret_msg += "故事发展引入一个突发事件或者转折，可能是好事，也可能是坏事。"
+        logging.info("触发故事转折")
+    if x3 <= STORY_PARAMETER["DARK"]:
+        ret_msg += "请接下来发展故事的暗线（例如敌人的行动）或故事线推进。"
+        logging.info("触发暗线")
+    if x4 <= STORY_PARAMETER["TALK"]:
+        ret_msg += "如果有队友，接下来基于队友身份、职业和阵营，发展一些对话"
+        logging.info("触发对话")
+    if x5 <= STORY_PARAMETER["DIFFICULT"] / 6:
+        ret_msg += "增加下一次检定的难度。"
+        logging.info("触发难度增加")
+    if x6 <= STORY_PARAMETER["LUCKY"]:
+        ret_msg += "请触发一些幸运事件，例如获得一些好处或者避免一些坏事。"
+        logging.info("触发幸运")
+    if x7 <= STORY_PARAMETER["MIND"]:
+        ret_msg += "触发团队随机角色的心理活动，如爱情、羡慕、快乐、悲伤、嫉妒等"
+        logging.info("触发心理活动")
+    if ret_msg != "":
+        ret_msg = "\n" + ret_msg
+    return ret_msg
+
+def get_difficult():
+    if STORY_PARAMETER["DIFFICULT"] <= 0.2:
+        return STORY_DIFFICULT_MAP[0]
+    elif STORY_PARAMETER["DIFFICULT"] <= 0.4:
+        return STORY_DIFFICULT_MAP[1]
+    elif STORY_PARAMETER["DIFFICULT"] <= 0.6:
+        return STORY_DIFFICULT_MAP[2]
+    elif STORY_PARAMETER["DIFFICULT"] <= 0.8:
+        return STORY_DIFFICULT_MAP[3]
+    elif STORY_PARAMETER["DIFFICULT"] <= 0.5:
+        return STORY_DIFFICULT_MAP[4]
+    return STORY_DIFFICULT_MAP[2]
+
 def message_markdown_parse(text: str) -> str:
     ss = text.split("\n")
     text_parse = ""
@@ -469,25 +559,33 @@ def is_chinese(string):
 
 
 @tool(parse_docstring=True)
-def RandomTool(low: int, high: int) -> str:
-    """Get a random number between low and high. It can be used in DND Games for checks or battles.
+def RandomTool(low: int, high: int, count: int = 1) -> str:
+    """Sum up {count} random numbers between {low} and {high}. It can be used in DND Games for checks or battles.
 
     Args:
         low: The low bound.
         high: The high bound.
+        count: The number of random numbers to generate.
     """
-    x = random.randint(low, high)
-    return str(x)
+    x_list = []
+    for _ in range(count):
+        x = random.randint(low, high)
+        x_list.append(x)
+    s = sum(x_list)
+    return str(s)
 
 async def get_model(
-    model: str = DEFAULT_MODEL, language: str = "en"
+    model: str = DEFAULT_MODEL, is_group: bool = False
 ) -> RunnableWithMessageHistory:
-    current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
+    group_instuction = "当前是单人玩家模式，由你托管团队其他成员。"
+    if is_group:
+        group_instuction = "当有多名玩家时，需要通过玩家名区分不同的玩家。如果不在战斗中，则可以向多个玩家同时提出选项，并通过玩家名识别不同玩家的行为；当在战斗的时候，依据先攻顺序建议玩家的行动次序。"
     prompt = ChatPromptTemplate.from_messages(
         [
             (
                 "system",
-                """期待你跟我一起跑团，你来当DM，通过我的想象来推动故事发展，我对你提出以下几点要求：
+                f"""期待你跟我一起跑团，你来当DM，通过我的想象来推动故事发展，我对你提出以下几点要求：
 1.将故事中发生的一切事件转化为属性值的检定，检定必须调用RandomTool函数投骰子，战斗时也必须使用RandomTool函数。
 2.辅助我构建好角色，并选择好剧本，人物特性等按照dnd5e规则
 3.当开始冒险时候，请提前构思好故事主线，故事可以不告诉我，但是可以提供一些背景信息。故事要有趣有梗，充满想象力。故事要足够有深度，要有阴谋诡计，就像现实世界，也要塑造立体的角色，提醒你通过话语和事件等塑造角色形象。
@@ -502,13 +600,14 @@ async def get_model(
 12.在游玩过程中我偶尔会指示你哪里过检定时使用的属性点是错误的，你需改正并从中学习
 13.注意记录角色升级的经验，人物的HP，GP和每件物品。
 14.注意当有选项供我选择，举例如预备法表时展示所有法术供我选择，种族（包括拓展种族）等类似，要用1234等序号标识方便我选择，注意不能使用你的推荐来省略
-15.当有多名玩家时，需要区别是否在战斗。如果不在战斗，则可以向多个玩家同时提出选项，并识别不同玩家的行为；当在战斗的时候，依据先攻顺序确定玩家行动次序。
-16.当玩家输入“info”时，需要详细当前所有人物的状态、数值、属性、职业、阵营、装备、物品、xp、gp、hp等信息，以及详细总结当前世界观、获得情报和故事进展。故事分为多个章节，可以简要汇报以前章节内容，但详细告知当前章节信息和进度。
+15.{group_instuction}
+16.当玩家输入“info”时，需要详细当前所有人物的状态、数值、属性、职业、阵营、装备、物品、xp、gp、hp等信息，以及详细总结当前世界观、获得情报和故事进展。故事分为多个章节，可以简要汇报以前章节内容，但详细告知当前章节信息和进度。当玩家输入“group”时，只需要详细当前所有人物的状态、数值、属性、职业、阵营、装备、物品、xp、gp、hp等信息。当玩家输入“world”时，只需要详细总结当前世界观、获得情报和故事进展。故事分为多个章节，可以简要汇报以前章节内容，但详细告知当前章节信息和进度。
 17.如果让你托管一些团队成员，请你根据他们的职业和阵营。有时，请自动生成他们的行为或语言。
-18.充分理解后回答我“欢迎来到地下城”""",
+18.{get_difficult()}
+19.充分理解后回答我“欢迎来到地下城”""",
             ),
             MessagesPlaceholder(variable_name="history", optional=True),
-            MessagesPlaceholder(variable_name="pdf_content", optional=True),
+            MessagesPlaceholder(variable_name="story_instruction", optional=True),
             ("human", "{question}"),
             MessagesPlaceholder(variable_name="agent_scratchpad", optional=True),
         ]
@@ -546,12 +645,24 @@ async def get_vision_model(model: str = VISION_MODEL):
 async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     sender_id = update.message.from_user.id
+    sender_name = update.message.from_user.name
     msg_id = update.message.message_id
     text = update.message.text
     reply_to_message = update.message.reply_to_message
     reply_to_id = None
     session_id = None
     model = DEFAULT_MODEL
+
+
+    logging.info(
+        "New message: chat_id=%r, sender_id=%r, sender_name=%r, msg_id=%r, text=%r, session_id=%r",
+        chat_id,
+        sender_id,
+        sender_name,
+        msg_id,
+        text,
+        session_id,
+    )
 
     if (
         reply_to_message is not None
@@ -579,15 +690,10 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         session_id = f"{chat_id}_{msg_id}"
 
-    logging.info(
-        "New message: chat_id=%r, sender_id=%r, msg_id=%r, text=%r, session_id=%r",
-        chat_id,
-        sender_id,
-        msg_id,
-        text,
-        session_id,
-    )
-    chain_with_history = await get_model(model=model)
+    chain_with_history = await get_model(model=model, is_group=False)
+    if update.effective_chat.id != update.message.from_user.id:
+        text = f"玩家{sender_name}：{text}"
+        chain_with_history = await get_model(model=model, is_group=True)
 
     error_cnt = 0
     while True:
@@ -599,10 +705,14 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     session_id=session_id, connection=sqlite_engine, async_mode=True
                 )
                 history_content = await history.aget_messages()
-                logging.info(f"History: {history_content}")
                 new_trace_id = uuid.uuid4()
+                param_msg = ""
+                if len(history_content) >= 10 and "info" not in text and "group" not in text and "world" not in text:
+                    param_msg = get_parameter()
                 query = {"question": text, "history": history_content}
-                
+                if param_msg != "":
+                    query["story_instruction"] = [SystemMessage(content=param_msg)]
+
                 with get_openai_callback() as cb:
                     stream = chain_with_history.astream(
                         query,
@@ -630,14 +740,17 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                         respond = step_action[min(idx + 10,len(step_action)):]
                                         step_action = step_action[:idx]
                                         step_action = step_action.replace("\n", "").replace("\r", "")
-                                        reply += respond
-                                        if first_update_timestamp is None:
-                                            first_update_timestamp = time.time()
-                                        if (
-                                            time.time()
-                                            >= first_update_timestamp + FIRST_BATCH_DELAY
-                                        ):
-                                            await replymsgs.update(reply + " [!Generating...]")
+                                        
+                                        try_respond = respond[:min(20, len(respond))]
+                                        if try_respond not in reply:
+                                            reply += respond
+                                            if first_update_timestamp is None:
+                                                first_update_timestamp = time.time()
+                                            if (
+                                                time.time()
+                                                >= first_update_timestamp + FIRST_BATCH_DELAY
+                                            ):
+                                                await replymsgs.update(reply + " [!Generating...]")
                                     action_logs.append(
                                         step_action.strip()
                                     )
@@ -710,6 +823,7 @@ async def post_init(application):
             ("del_whitelist", "Delete this group from whitelist (only admin)"),
             ("get_whitelist", "List groups in whitelist (only admin)"),
             ("set_model", "Set GPT model (only admin)"),
+            ("parameter", "Set story parameters (only admin)"),
         ]
     )
 
@@ -720,7 +834,7 @@ if __name__ == "__main__":
     )
 
     rootLogger = logging.getLogger()
-    rootLogger.setLevel(logging.DEBUG)
+    rootLogger.setLevel(logging.INFO)
 
     fileHandler = logging.FileHandler("chatgpt-telegram-bot.log")
     fileHandler.setFormatter(logFormatter)
@@ -759,4 +873,5 @@ if __name__ == "__main__":
         application.add_handler(CommandHandler("del_whitelist", del_whitelist_handler))
         application.add_handler(CommandHandler("get_whitelist", get_whitelist_handler))
         application.add_handler(CommandHandler("set_model", set_model))
+        application.add_handler(CommandHandler("parameter", set_parameter))
         application.run_polling()
