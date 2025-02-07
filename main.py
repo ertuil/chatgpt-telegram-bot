@@ -62,17 +62,17 @@ STORY_PARAMETER = {
     "CHANGE": 0.05,
     "DARK": 0.05,
     "TALK": 0.1,
-    "DIFFICULT": 0.6,
+    "DIFFICULT": 0.7,
     "LUCKY": 0.05,
     "MIND": 0.1,
 }
 
 STORY_DIFFICULT_MAP = [
-    "当前游戏难度：【新手】。战斗时敌人难度略弱与团队。Boss敌人等级可以和团队等级低1级；团体精英等级可以和团队等级-1/-2级，杂兵等级可以-2/-3级。敌人的武器、技能和法术应当合理，不应当过强或过弱。存在一些简单的机关。",
-    "当前游戏难度：【简单】。战斗时敌人难度和团队相等，但不应当过弱，以保持游戏的紧张感。Boss敌人等级可以和团队等级相当；团体精英等级可以和团队等级相等，普通敌人等级可以-1级。敌人的武器、技能和法术应当合理，不应当过强或过弱。存在一些简单的机关和谜题，但不应当过难。",
-    "当前游戏难度：【普通】。战斗时Boss敌人难度比团队+1级，以保持游戏的紧张感。团体战精英等级可以和团队等级相当，杂兵等级可以-1级。精英敌人具有一些的武器、法术和道具，不应当过强或过弱。存在一些低/中等伤害的机关和复杂谜题，但不应当过难。",
-    "当前游戏难度：【困难】。战斗时Boss敌人难度比团队+1/+2级，以保持游戏的紧张感。单体敌人等级可以和团队等级比团队+1/+2级；团体敌人Boss等级比团队等级+1/+2级，杂兵等级和团队相当。精英敌人具有丰富的武器、法术和道具，不应当过强或过弱。存在一些中高伤害的机关和复杂谜题，但不应当过难。存在一些可以利用的环境机关。",
-    "当前游戏难度：【极难】。战斗时Boss敌人难度比团队+1/+2/+3级，以保持游戏的紧张感。单体敌人等级和团队等级比团队+1/+2级；团体敌人Boss等级比团队等级+1/+2级，杂兵等级和团队相当。精英敌人具有丰富的武器、法术和道具，Boss敌人具有强大的武器、法术、道具和防御机制，但不应当过强。存在一些中高伤害的机关和复杂谜题，但不应当过难。存在一些可以利用的环境机关。"
+    "当前游戏难度：【新手】。请根据团队等级生成敌人和NPC的数值、装备、武器、法术和技能。NPC和团队等级相当，关键NPC等级较高。敌人数值略弱与团队：Boss敌人等级可以和团队等级相等；精英敌人比团队等级-1/-2级，杂兵-2/-3级，不应当过强或过弱。环境中存在一些简单的机关。",
+    "当前游戏难度：【简单】。请根据团队等级生成敌人和NPC的数值、装备、武器、法术和技能。NPC和团队等级相当，关键NPC等级较高。敌人数值和团队相当，但不应当过弱，以保持游戏的紧张感：Boss敌人可以和团队相当；精英敌人可以和团队等级相等，比团队等级-1级，杂兵比团队等级-2级，不应当过强或过弱。存在一些简单的机关和谜题，但不应当过难。",
+    "当前游戏难度：【普通】。请根据团队等级生成敌人和NPC的数值、装备、武器、法术和技能。NPC和团队等级相当，关键NPC等级很高。敌人数值和团队相当，但不应当过弱，以保持游戏的紧张感：Boss敌人等级比团队+1级，其数值根据等级生成，精英敌人可以和团队等级相当，杂兵等级可以相等或-1级。Boss/精英敌人具有一些的武器、法术和道具，不应当过强或过弱。存在一些低/中等伤害的机关和复杂谜题，但不应当过难。",
+    "当前游戏难度：【困难】。请根据团队等级生成敌人和NPC的数值、装备、武器、法术和技能。NPC和团队等级相当，关键NPC等级很高。敌人数值和团队相当，但不应当过弱，以保持游戏的紧张感：Boss敌人等级比团队+1/+2级，其数值根据等级生成，精英敌人可以和团队等级相当或+1级，杂兵等级可以相等。Boss/精英敌人具有较强的武器、法术和道具，不应当过强或过弱。存在一些中/高等伤害的机关和复杂谜题，但不应当过难。",
+    "当前游戏难度：【极难】。请根据团队等级生成敌人和NPC的数值、装备、武器、法术和技能。NPC和团队等级相当，关键NPC等级很高。敌人数值比团队略强，但不应当过弱，以保持游戏的紧张感：Boss敌人等级比团队+2/+3级，其数值根据等级生成，精英敌人可以和团队等级相当或+1/+2级，杂兵等级可以相等或+1级。Boss/精英敌人具有很强大的武器、法术和道具，不应当过强或过弱。存在一些中/高等伤害的机关和复杂谜题，但不应当过难。"
 ]
 
 telegram_last_timestamp = None
@@ -331,9 +331,9 @@ async def set_parameter(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def get_parameter() -> str:
     ret_msg = ""
-    x1, x2, x3, x4, x5, x6, x7 = random.random(), random.random(), random.random(), random.random(), random.random(), random.random(), random.random()
+    x1, x2, x3, x4, x5, x6, x7, x8 = random.random(), random.random(), random.random(), random.random(), random.random(), random.random(), random.random(), random.random()
     if x1 <= STORY_PARAMETER["RANDOM"]:
-        ret_msg += "接下来所有战斗和检定请使用RandomTool函数产生随机数。"
+        ret_msg += "接下来所有战斗和检定请使用RandomTool产生随机数。"
         logging.info("触发随机数加强")
     if x2 <= STORY_PARAMETER["CHANGE"]:
         ret_msg += "故事发展引入一个突发事件或者转折，可能是好事，也可能是坏事。"
@@ -344,7 +344,7 @@ def get_parameter() -> str:
     if x4 <= STORY_PARAMETER["TALK"]:
         ret_msg += "如果有队友，接下来基于队友身份、职业和阵营，发展一些对话"
         logging.info("触发对话")
-    if x5 <= STORY_PARAMETER["DIFFICULT"] / 6:
+    if x5 <= STORY_PARAMETER["DIFFICULT"] / 10:
         ret_msg += "增加下一次检定的难度。"
         logging.info("触发难度增加")
     if x6 <= STORY_PARAMETER["LUCKY"]:
@@ -353,8 +353,9 @@ def get_parameter() -> str:
     if x7 <= STORY_PARAMETER["MIND"]:
         ret_msg += "触发团队随机角色的心理活动，如爱情、羡慕、快乐、悲伤、嫉妒等"
         logging.info("触发心理活动")
-    if ret_msg != "":
-        ret_msg = "\n" + ret_msg
+    if x8 <= STORY_PARAMETER["DIFFICULT"] / 3:
+        ret_msg += f"{get_difficult()}"
+        logging.info("触发难度设置提醒")
     return ret_msg
 
 def get_difficult():
@@ -376,6 +377,7 @@ def message_markdown_parse(text: str) -> str:
     for x in ss:
         # tmp_x = re.sub(r'[_\*\[\]\(\)\~>#\+-=\|\{\}\.\!]', lambda x: '\\' + x.group(), x)
         tmp_x = re.sub(r"(?<!\\)(_|\*|\[|\]|\(|\)|\~|`|>|#|\+|-|=|\||\{|\}|\.|\!|\\)", lambda t: "\\"+t.group(), x)
+        tmp_x = re.sub(r'\`\`\`.+\`\`\`', lambda x: '`' + x.group() + '`', tmp_x)
         if tmp_x.startswith("\\#"):
             tmp_x = f"*{tmp_x}*"
         elif tmp_x.startswith("\\>"):
@@ -559,19 +561,23 @@ def is_chinese(string):
 
 
 @tool(parse_docstring=True)
-def RandomTool(low: int, high: int, count: int = 1) -> str:
-    """Sum up {count} random numbers between {low} and {high}. It can be used in DND Games for checks or battles.
+def RandomTool(high: int, low: int = 1, count: int = 1, offset: int = 0) -> str:
+    """Sum up {count} random numbers between {low} and {high} and then add it with {offset}. It can be used to get random numbers, e.g., {count}d{high}+{offset} in DND (D&D) games.
 
     Args:
-        low: The low bound.
         high: The high bound.
+        low: The low bound.
         count: The number of random numbers to generate.
+        offset: The additional offset to add to the final number.
     """
     x_list = []
     for _ in range(count):
         x = random.randint(low, high)
         x_list.append(x)
+    x_list.append(offset)
     s = sum(x_list)
+    if low == 1:
+        return f"{count}d{high}+{offset}={s}"
     return str(s)
 
 async def get_model(
@@ -607,7 +613,6 @@ async def get_model(
 19.充分理解后回答我“欢迎来到地下城”""",
             ),
             MessagesPlaceholder(variable_name="history", optional=True),
-            MessagesPlaceholder(variable_name="story_instruction", optional=True),
             ("human", "{question}"),
             MessagesPlaceholder(variable_name="agent_scratchpad", optional=True),
         ]
@@ -652,6 +657,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_to_id = None
     session_id = None
     model = DEFAULT_MODEL
+    is_group = False if update.effective_chat.id == update.message.from_user.id else True
 
 
     logging.info(
@@ -684,16 +690,18 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session_id = f"{chat_id}_{msg_id}"
         db[repr(("session", chat_id, msg_id))] = session_id
     else:  # not reply or new message to bot
-        if (
-            update.effective_chat.id != update.message.from_user.id
-        ):  # if not in private chat, do not send hint
+        if is_group:  # if not in private chat, do not send hint
             return
         session_id = f"{chat_id}_{msg_id}"
 
-    chain_with_history = await get_model(model=model, is_group=False)
-    if update.effective_chat.id != update.message.from_user.id:
+    chain_with_history = await get_model(model=model, is_group=is_group)
+    if is_group:
         text = f"玩家{sender_name}：{text}"
-        chain_with_history = await get_model(model=model, is_group=True)
+    else:
+        text = f"Player：{text}"
+    
+    if "推进剧情" in text:
+        text = text.replace("推进剧情", "继续按照原版故事，推进游戏")
 
     error_cnt = 0
     while True:
@@ -707,11 +715,12 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 history_content = await history.aget_messages()
                 new_trace_id = uuid.uuid4()
                 param_msg = ""
+                query = {"question": text, "history": history_content}
+
                 if len(history_content) >= 10 and "info" not in text and "group" not in text and "world" not in text:
                     param_msg = get_parameter()
-                query = {"question": text, "history": history_content}
-                if param_msg != "":
-                    query["story_instruction"] = [SystemMessage(content=param_msg)]
+                    if param_msg != "":
+                        query = {"question": f"{text} \n System: {param_msg}", "history": history_content}
 
                 with get_openai_callback() as cb:
                     stream = chain_with_history.astream(
