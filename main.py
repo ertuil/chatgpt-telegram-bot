@@ -59,12 +59,13 @@ VISION_MODEL = "gpt-4o-2024-11-20"
 
 STORY_PARAMETER = {
     "RANDOM": 0.3,
-    "CHANGE": 0.05,
-    "DARK": 0.05,
+    "CHANGE": 0.03,
+    "DARK": 0.03,
     "TALK": 0.1,
     "DIFFICULT": 0.7,
     "LUCKY": 0.05,
     "MIND": 0.1,
+    "FOLLOW": 0,
 }
 
 STORY_DIFFICULT_MAP = [
@@ -314,7 +315,7 @@ async def set_parameter(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     try:
         value_list = map(float, message.split())
-        kv_list = zip(["RANDOM", "CHANGE", "DARK", "TALK", "DIFFICULT", "LUCKY", "MIND"], value_list)
+        kv_list = zip(["RANDOM", "CHANGE", "DARK", "TALK", "DIFFICULT", "LUCKY", "MIND", "FOLLOW"], value_list)
         for key, value in kv_list:
             STORY_PARAMETER[key] = value
         await send_message(
@@ -331,7 +332,7 @@ async def set_parameter(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def get_parameter() -> str:
     ret_msg = ""
-    x1, x2, x3, x4, x5, x6, x7, x8 = random.random(), random.random(), random.random(), random.random(), random.random(), random.random(), random.random(), random.random()
+    x1, x2, x3, x4, x5, x6, x7, x8, x9 = random.random(), random.random(), random.random(), random.random(), random.random(), random.random(), random.random(), random.random(), random.random()
     if x1 <= STORY_PARAMETER["RANDOM"]:
         ret_msg += "接下来所有战斗和检定请使用RandomTool产生随机数。"
         logging.info("触发随机数加强")
@@ -356,6 +357,9 @@ def get_parameter() -> str:
     if x8 <= STORY_PARAMETER["DIFFICULT"] / 3:
         ret_msg += f"{get_difficult()}"
         logging.info("触发难度设置提醒")
+    if x9 <= STORY_PARAMETER["FOLLOW"]:
+        ret_msg += "请遵守原本剧情，推进故事发展"
+        logging.info("触发跟随原本剧情")
     return ret_msg
 
 def get_difficult():
@@ -579,6 +583,7 @@ def RandomTool(high: int, low: int = 1, count: int = 1, offset: int = 0) -> str:
     if low == 1:
         return f"{count}d{high}+{offset}={s}"
     return str(s)
+
 
 async def get_model(
     model: str = DEFAULT_MODEL, is_group: bool = False
