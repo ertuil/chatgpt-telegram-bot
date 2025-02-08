@@ -58,23 +58,15 @@ FIRST_BATCH_DELAY = 1
 VISION_MODEL = "gpt-4o-2024-11-20"
 
 STORY_PARAMETER = {
+    "DIFFICULT": 0.7,
+    "FOLLOW": 0.3,
     "RANDOM": 0.3,
     "CHANGE": 0.03,
     "DARK": 0.03,
     "TALK": 0.1,
-    "DIFFICULT": 0.7,
     "LUCKY": 0.05,
-    "MIND": 0.1,
-    "FOLLOW": 0,
+    "MIND": 0.05,
 }
-
-STORY_DIFFICULT_MAP = [
-    "当前游戏难度：【新手】。请根据团队等级生成敌人和NPC的数值、装备、武器、法术和技能。NPC和团队等级相当，关键NPC等级较高。敌人数值略弱与团队：Boss敌人等级可以和团队等级相等；精英敌人比团队等级-1/-2级，杂兵-2/-3级，不应当过强或过弱。环境中存在一些简单的机关。",
-    "当前游戏难度：【简单】。请根据团队等级生成敌人和NPC的数值、装备、武器、法术和技能。NPC和团队等级相当，关键NPC等级较高。敌人数值和团队相当，但不应当过弱，以保持游戏的紧张感：Boss敌人可以和团队相当；精英敌人可以和团队等级相等，比团队等级-1级，杂兵比团队等级-2级，不应当过强或过弱。存在一些简单的机关和谜题，但不应当过难。",
-    "当前游戏难度：【普通】。请根据团队等级生成敌人和NPC的数值、装备、武器、法术和技能。NPC和团队等级相当，关键NPC等级很高。敌人数值和团队相当，但不应当过弱，以保持游戏的紧张感：Boss敌人等级比团队+1级，其数值根据等级生成，精英敌人可以和团队等级相当，杂兵等级可以相等或-1级。Boss/精英敌人具有一些的武器、法术和道具，不应当过强或过弱。存在一些低/中等伤害的机关和复杂谜题，但不应当过难。",
-    "当前游戏难度：【困难】。请根据团队等级生成敌人和NPC的数值、装备、武器、法术和技能。NPC和团队等级相当，关键NPC等级很高。敌人数值和团队相当，但不应当过弱，以保持游戏的紧张感：Boss敌人等级比团队+1/+2级，其数值根据等级生成，精英敌人可以和团队等级相当或+1级，杂兵等级可以相等。Boss/精英敌人具有较强的武器、法术和道具，不应当过强或过弱。存在一些中/高等伤害的机关和复杂谜题，但不应当过难。",
-    "当前游戏难度：【极难】。请根据团队等级生成敌人和NPC的数值、装备、武器、法术和技能。NPC和团队等级相当，关键NPC等级很高。敌人数值比团队略强，但不应当过弱，以保持游戏的紧张感：Boss敌人等级比团队+2/+3级，其数值根据等级生成，精英敌人可以和团队等级相当或+1/+2级，杂兵等级可以相等或+1级。Boss/精英敌人具有很强大的武器、法术和道具，不应当过强或过弱。存在一些中/高等伤害的机关和复杂谜题，但不应当过难。"
-]
 
 telegram_last_timestamp = None
 telegram_rate_limit_lock = asyncio.Lock()
@@ -315,7 +307,7 @@ async def set_parameter(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     try:
         value_list = map(float, message.split())
-        kv_list = zip(["RANDOM", "CHANGE", "DARK", "TALK", "DIFFICULT", "LUCKY", "MIND", "FOLLOW"], value_list)
+        kv_list = zip(["DIFFICULT", "FOLLOW", "RANDOM", "CHANGE", "DARK", "TALK", "LUCKY", "MIND"], value_list)
         for key, value in kv_list:
             STORY_PARAMETER[key] = value
         await send_message(
@@ -334,7 +326,7 @@ def get_parameter() -> str:
     ret_msg = ""
     x1, x2, x3, x4, x5, x6, x7, x8, x9 = random.random(), random.random(), random.random(), random.random(), random.random(), random.random(), random.random(), random.random(), random.random()
     if x1 <= STORY_PARAMETER["RANDOM"]:
-        ret_msg += "接下来所有战斗和检定请使用RandomTool产生随机数。"
+        ret_msg += "后续团队和敌人所有战斗和检定全部使用RandomTool。"
         logging.info("触发随机数加强")
     if x2 <= STORY_PARAMETER["CHANGE"]:
         ret_msg += "故事发展引入一个突发事件或者转折，可能是好事，也可能是坏事。"
@@ -343,7 +335,7 @@ def get_parameter() -> str:
         ret_msg += "请接下来发展故事的暗线（例如敌人的行动）或故事线推进。"
         logging.info("触发暗线")
     if x4 <= STORY_PARAMETER["TALK"]:
-        ret_msg += "如果有队友，接下来基于队友身份、职业和阵营，发展一些对话"
+        ret_msg += "如果团队有队友，接下来基于队友的身份、职业和阵营，发展部分队友之间的一些对话。如果没有队友则忽略。"
         logging.info("触发对话")
     if x5 <= STORY_PARAMETER["DIFFICULT"] / 10:
         ret_msg += "增加下一次检定的难度。"
@@ -352,28 +344,50 @@ def get_parameter() -> str:
         ret_msg += "请触发一些幸运事件，例如获得一些好处或者避免一些坏事。"
         logging.info("触发幸运")
     if x7 <= STORY_PARAMETER["MIND"]:
-        ret_msg += "触发团队随机角色的心理活动，如爱情、羡慕、快乐、悲伤、嫉妒等"
+        ret_msg += "如果团队中有队友，则随机触发团队一个角色的心理活动，如爱情、羡慕、快乐、悲伤、嫉妒等。如果没有队友则忽略。"
         logging.info("触发心理活动")
     if x8 <= STORY_PARAMETER["DIFFICULT"] / 3:
-        ret_msg += f"{get_difficult()}"
+        ret_msg += f"{get_difficult()}。如需变更敌人数值，请编造合理的故事。"
         logging.info("触发难度设置提醒")
     if x9 <= STORY_PARAMETER["FOLLOW"]:
-        ret_msg += "请遵守原本剧情，推进故事发展"
+        ret_msg += "请严格遵守模组的原本剧情，推进故事发展"
         logging.info("触发跟随原本剧情")
     return ret_msg
 
 def get_difficult():
-    if STORY_PARAMETER["DIFFICULT"] <= 0.2:
-        return STORY_DIFFICULT_MAP[0]
-    elif STORY_PARAMETER["DIFFICULT"] <= 0.4:
-        return STORY_DIFFICULT_MAP[1]
-    elif STORY_PARAMETER["DIFFICULT"] <= 0.6:
-        return STORY_DIFFICULT_MAP[2]
-    elif STORY_PARAMETER["DIFFICULT"] <= 0.8:
-        return STORY_DIFFICULT_MAP[3]
-    elif STORY_PARAMETER["DIFFICULT"] <= 0.5:
-        return STORY_DIFFICULT_MAP[4]
-    return STORY_DIFFICULT_MAP[2]
+    STORY_DIFFICULT_TEMPLATE = "当前游戏难度：【{dn}】。属性检定/豁免鉴定难度范围为DC{check_d}。普通NPC和团队等级{npc_d1}，关键NPC等级{npc_d2}。请根据团队等级和DND5e怪物图鉴生成敌人和NPC的类型、等级、数值、武器、法术和技能：敌人最高CR=玩家等级*团队人数/4的{boss_d}倍，且敌人CR总和=玩家等级*团队人数/4的{group_d}倍，不应当过强或过弱。Boss/精英敌人具有{skill_d}的武器、法术和道具。环境中存在{env_d}的机关，{env_d2}。"
+
+
+    difficult_map = [
+        ("新手",  "5~12", "相当", "较高", "0.3~0.6", "0.3~0.6", "简易", "少量低伤害、易察觉", "直接告知玩家"),
+        ("新手",  "6~13", "相当", "较高", "0.3~0.6", "0.4~0.8", "简易", "少量低伤害、易察觉", "直接告知玩家"),
+        ("简单",  "7~14", "相当", "较高", "0.5~0.75", "0.5~0.9", "简易", "一些低伤害", "需要低难度检定发现"),
+        ("简单",  "8~15", "相当", "较高", "0.6~0.75", "0.6~1.2", "中等", "一些低/中伤害", "需要低难度检定发现"),
+        ("普通",  "9~16", "相当", "较高", "0.7~1.0", "0.8~1.4", "中等", "一些低/中伤害", "需要中等难度检定发现"),
+        ("普通",  "9~17", "较高", "极高", "0.8~1.0", "1.0~1.7", "较强", "大量低/中伤害", "需要中等难度检定发现"),
+        ("困难", "10~17", "较高", "极高", "0.9~1.15", "1.3~2.0", "较强", "大量中/高伤害", "需要中等难度检定发现"),
+        ("困难", "10~18", "较高", "极高", "1.0~1.25", "1.5~2.5", "较强", "大量中/高伤害", "需要中等难度检定发现"),
+        ("极难", "11~18", "较高", "极高", "1.0~1.5", "2.0~3.0", "很强", "大量高伤害", "需要高难度检定发现"),
+        ("极难", "12~19", "较高", "极高", "1.0~1.7", "2.5~4.0", "很强", "大量高伤害", "需要高难度检定发现"),
+    ]
+
+    if STORY_PARAMETER["DIFFICULT"] > 1:
+        STORY_PARAMETER["DIFFICULT"] = 1.0
+
+    offset = int(STORY_PARAMETER["DIFFICULT"] * 10)
+
+    return STORY_DIFFICULT_TEMPLATE.format(
+        dn = difficult_map[offset][0],
+        check_d = difficult_map[offset][1],
+        npc_d1 = difficult_map[offset][2],
+        npc_d2 = difficult_map[offset][3],
+        boss_d = difficult_map[offset][4],
+        group_d = difficult_map[offset][5],
+        skill_d = difficult_map[offset][6],
+        env_d = difficult_map[offset][7],
+        env_d2 = difficult_map[offset][8],
+    )
+
 
 def message_markdown_parse(text: str) -> str:
     ss = text.split("\n")
@@ -636,7 +650,7 @@ async def get_model(
     ]
 
     agent = create_tool_calling_agent(llm, tools, prompt)
-    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, max_iterations=25)
     chain = agent_executor
     return chain
 
