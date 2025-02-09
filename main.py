@@ -667,7 +667,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pdf = await obj.download_as_bytearray()
             pdf = bytes(pdf)
             cap = update.message.caption
-            text = cap if cap is not None and text is None else text
+            text = cap if cap is not None else text
             if not os.path.exists("data/upload"):
                 os.makedirs("data/upload")
 
@@ -679,7 +679,8 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             async for page in loader.alazy_load():
                 pdf_content += page.page_content
             pdf_content = f"PDF File: {f.file_name}\nContent: {pdf_content[:min(len(pdf_content), TOTAL_PDF_LIMIT)]}"
-    except Exception:
+    except Exception as e:
+        logging.error(f"get pdf error: {e}")
         pdf_content = None
 
     if (
