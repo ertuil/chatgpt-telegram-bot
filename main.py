@@ -59,8 +59,8 @@ VISION_MODEL = "gpt-4o-2024-11-20"
 
 STORY_PARAMETER = {
     "DIFFICULT": 0.7,
-    "FOLLOW": 0.3,
-    "RANDOM": 0.3,
+    "FOLLOW": 0.2,
+    "RANDOM": 0.2,
     "CHANGE": 0.03,
     "DARK": 0.03,
     "TALK": 0.1,
@@ -326,7 +326,7 @@ def get_parameter() -> str:
     ret_msg = ""
     x1, x2, x3, x4, x5, x6, x7, x8, x9 = random.random(), random.random(), random.random(), random.random(), random.random(), random.random(), random.random(), random.random(), random.random()
     if x1 <= STORY_PARAMETER["RANDOM"]:
-        ret_msg += "后续团队和敌人所有战斗和检定全部使用RandomTool。"
+        ret_msg += "后续团队和敌人所有战斗和检定必须依次使用给定的骰子结果。"
         logging.info("触发随机数加强")
     if x2 <= STORY_PARAMETER["CHANGE"]:
         ret_msg += "故事发展引入一个突发事件或者转折，可能是好事，也可能是坏事。"
@@ -346,8 +346,8 @@ def get_parameter() -> str:
     if x7 <= STORY_PARAMETER["MIND"]:
         ret_msg += "如果团队中有队友，则随机触发团队一个角色的心理活动，如爱情、羡慕、快乐、悲伤、嫉妒等。如果没有队友则忽略。"
         logging.info("触发心理活动")
-    if x8 <= STORY_PARAMETER["DIFFICULT"] / 3:
-        ret_msg += f"{get_difficult()}。如需变更敌人数值，请编造合理的故事。"
+    if x8 <= STORY_PARAMETER["FOLLOW"]:
+        ret_msg += f"{get_difficult()}。如需变更敌人数值，请悄悄变更，并编造合理的故事使剧情连贯。"
         logging.info("触发难度设置提醒")
     if x9 <= STORY_PARAMETER["FOLLOW"]:
         ret_msg += "请严格遵守模组的原本剧情，推进故事发展"
@@ -355,20 +355,20 @@ def get_parameter() -> str:
     return ret_msg
 
 def get_difficult():
-    STORY_DIFFICULT_TEMPLATE = "当前游戏难度：【{dn}】。属性检定/豁免鉴定难度范围为DC{check_d}。普通NPC和团队等级{npc_d1}，关键NPC等级{npc_d2}。请根据团队等级和DND5e怪物图鉴生成敌人和NPC的类型、等级、数值、武器、法术和技能：敌人最高CR=玩家等级*团队人数/4的{boss_d}倍，且敌人CR总和=玩家等级*团队人数/4的{group_d}倍，不应当过强或过弱。Boss/精英敌人具有{skill_d}的武器、法术和道具。环境中存在{env_d}的机关，{env_d2}。"
+    STORY_DIFFICULT_TEMPLATE = "当前游戏难度：【{dn}】。属性检定/豁免鉴定难度范围为DC{check_d}。普通NPC和团队等级{npc_d1}，关键NPC等级{npc_d2}。请根据团队等级和DND5e怪物图鉴生成敌人和NPC的类型、等级、数值、武器、法术和技能：敌人最高CR=玩家等级*团队人数/4的{boss_d}倍，且敌人CR总和=玩家等级*团队人数/4的{group_d}倍，不应当过强或过弱。Boss/精英敌人具有{skill_d}的武器、法术和道具。进入危险的新场景可能存在{env_d}的机关，{env_d2}。"
 
 
     difficult_map = [
-        ("新手",  "5~12", "相当", "较高", "0.3~0.6", "0.3~0.6", "简易", "少量低伤害、易察觉", "直接告知玩家"),
-        ("新手",  "6~13", "相当", "较高", "0.3~0.6", "0.4~0.8", "简易", "少量低伤害、易察觉", "直接告知玩家"),
-        ("简单",  "7~14", "相当", "较高", "0.5~0.75", "0.5~0.9", "简易", "一些低伤害", "需要低难度检定发现"),
-        ("简单",  "8~15", "相当", "较高", "0.6~0.75", "0.6~1.2", "中等", "一些低/中伤害", "需要低难度检定发现"),
-        ("普通",  "9~16", "相当", "较高", "0.7~1.0", "0.8~1.4", "中等", "一些低/中伤害", "需要中等难度检定发现"),
-        ("普通",  "9~17", "较高", "极高", "0.8~1.0", "1.0~1.7", "较强", "大量低/中伤害", "需要中等难度检定发现"),
-        ("困难", "10~17", "较高", "极高", "0.9~1.15", "1.3~2.0", "较强", "大量中/高伤害", "需要中等难度检定发现"),
-        ("困难", "10~18", "较高", "极高", "1.0~1.25", "1.5~2.5", "较强", "大量中/高伤害", "需要中等难度检定发现"),
-        ("极难", "11~18", "较高", "极高", "1.0~1.5", "2.0~3.0", "很强", "大量高伤害", "需要高难度检定发现"),
-        ("极难", "12~19", "较高", "极高", "1.0~1.7", "2.5~4.0", "很强", "大量高伤害", "需要高难度检定发现"),
+        ("新手",  "5~12", "相当", "较高", "0.3~0.6", "0.3~0.6", "简易", "少量低伤害、易察觉", "请主动触发用户属性鉴定"),
+        ("新手",  "6~13", "相当", "较高", "0.3~0.6", "0.4~0.8", "简易", "少量低伤害、易察觉", "请主动触发用户属性鉴定"),
+        ("简单",  "7~14", "相当", "较高", "0.5~0.75", "0.5~0.9", "简易", "一些低伤害", "请主动触发用户属性鉴定"),
+        ("简单",  "8~15", "相当", "较高", "0.6~0.75", "0.6~1.2", "中等", "一些低/中伤害", "请主动触发用户属性鉴定"),
+        ("普通",  "9~16", "相当", "较高", "0.7~1.0", "0.8~1.4", "中等", "一些低/中伤害", "90%概率主动触发用户属性鉴定；10%概率如果用户没有主动鉴定，则直接触发机关并进行豁免检定"),
+        ("普通",  "9~17", "较高", "极高", "0.8~1.0", "1.0~1.7", "较强", "大量低/中伤害", "80%概率主动触发用户属性鉴定；20%概率如果用户没有主动鉴定，则直接触发机关并进行豁免检定"),
+        ("困难", "10~17", "较高", "极高", "0.9~1.15", "1.3~2.0", "较强", "大量中/高伤害", "75%概率主动触发用户属性鉴定；25%概率如果用户没有主动鉴定，则直接触发机关并进行豁免检定"),
+        ("困难", "10~18", "较高", "极高", "1.0~1.25", "1.5~2.5", "较强", "大量中/高伤害", "70%概率主动触发用户属性鉴定；30%概率如果用户没有主动鉴定，则直接触发机关并进行豁免检定"),
+        ("极难", "11~18", "较高", "极高", "1.0~1.5", "2.0~3.0", "很强", "大量高伤害", "65%概率主动触发用户属性鉴定；35%概率如果用户没有主动鉴定，则直接触发机关并进行豁免检定"),
+        ("极难", "12~19", "较高", "极高", "1.0~1.7", "2.5~4.0", "很强", "大量高伤害", "60%概率主动触发用户属性鉴定；40%概率如果用户没有主动鉴定，则直接触发机关并进行豁免检定"),
     ]
 
     if STORY_PARAMETER["DIFFICULT"] > 1:
@@ -598,6 +598,35 @@ def RandomTool(high: int, low: int = 1, count: int = 1, offset: int = 0) -> str:
         return f"{count}d{high}+{offset}={s}"
     return str(s)
 
+def DiceTool(count: int = 24) -> str:
+    d20_list = []
+    d12_list = []
+    d10_list = []
+    d8_list = []
+    d6_list = []
+    d4_list = []
+
+    for _ in range(count):
+        d20_list.append(str(random.randint(1, 20)))
+        d8_list.append(str(random.randint(1, 8)))
+        d6_list.append(str(random.randint(1, 6)))
+        d4_list.append(str(random.randint(1, 4)))
+
+    for _ in range(count // 2):
+        d12_list.append(str(random.randint(1, 12)))
+        d10_list.append(str(random.randint(1, 10)))
+
+    ret = f"""
+System: 所有鉴定和攻击请依次使用下面骰子的随机结果：
+d20: {" ".join(d20_list)}
+d12: {" ".join(d12_list)}
+d10: {" ".join(d10_list)}
+d8: {" ".join(d8_list)}
+d6: {" ".join(d6_list)}
+d4: {" ".join(d4_list)}
+"""
+    return ret
+
 
 async def get_model(
     model: str = DEFAULT_MODEL, is_group: bool = False
@@ -606,23 +635,28 @@ async def get_model(
     group_instuction = "当前是单人玩家模式，由你托管团队其他成员。"
     if is_group:
         group_instuction = "当有多名玩家时，需要通过玩家名区分不同的玩家。如果不在战斗中，则可以向多个玩家同时提出选项，并通过玩家名识别不同玩家的行为；当在战斗的时候，依据先攻顺序建议玩家的行动次序。"
+    
+    story_instruction = "剧情方面你可以参考dnd的剧本，但故事走向更多取决于我们的对话，你是最棒的人工智能，相信你可以做到的。故事要有趣有梗，充满想象力。故事要足够有深度，要有阴谋诡计，就像现实世界，也要塑造立体的角色，提醒你通过话语和事件等塑造角色形象。"
+    if STORY_PARAMETER["FOLLOW"] > 0:
+        story_instruction = f"故事请严格按照用户选定的剧本剧情发展。细节情节要有趣有梗，充满想象力，要有阴谋诡计，就像现实世界，也要塑造立体的角色，提醒你通过话语和事件等塑造角色形象。"
+    
     prompt = ChatPromptTemplate.from_messages(
         [
             (
                 "system",
                 f"""期待你跟我一起跑团，你来当DM，通过我的想象来推动故事发展，我对你提出以下几点要求：
-1.将故事中发生的一切事件转化为属性值的检定，检定必须调用RandomTool函数投骰子，战斗时也必须使用RandomTool函数。
+1.将故事中发生的一切事件转化为属性值的检定，检定和攻击必须依次使用给定的骰子结果。
 2.辅助我构建好角色，并选择好剧本，人物特性等按照dnd5e规则
-3.当开始冒险时候，请提前构思好故事主线，故事可以不告诉我，但是可以提供一些背景信息。故事要有趣有梗，充满想象力。故事要足够有深度，要有阴谋诡计，就像现实世界，也要塑造立体的角色，提醒你通过话语和事件等塑造角色形象。
+3.当开始冒险时候，请用华丽生动的语言进行开场，介绍世界观、团队成员和任务。{story_instruction}
 4.要足够公平，我以后可能会有过不去的检定，过不去就可以让我的角色遭受过不去的惩罚
 5.要严格按照dnd5e规则，以dnd5e规则为主。当我的话语严重与规则不符时，你要提醒我，如不是法师但抄法表，然后制止我，不用迁就我，请明白，这里只有你懂规则。
 6.你要根据上下文来合理制定检定的难度与属性值要求，通过检定后要给予一定的xp奖励
 7.检定是指过d20，既投一个20面骰，用到1-20的随机数。过检定时要说出我的数值，加值与检定难度，方便我判断是否要进行检定。
 8.你需要加强记忆，记住我跑团时的一切事物，我举一个例子，如我的装备与上边附带的附魔效果，注意这只是例子，在真正的跑团途中你还会遇到很多需要记忆的事物，你需要严格记录
-9.剧情方面你可以参考dnd的剧本，但故事走向更多取决于我们的对话，你是最棒的人工智能，相信你可以做到的
-10.合理设置所获得的装备法术效果等，如火焰大剑增加1d4的火焰伤害等，我也可以出售物品，这需要你构建一个合理的经济系统（当然如魅力游说高会有折扣）
-11.法术需要法术位来施放
-12.在游玩过程中我偶尔会指示你哪里过检定时使用的属性点是错误的，你需改正并从中学习
+9.请通过NPC对话、发现物品、探索环境、突发事件等方式来触发新剧情和新任务。新任务导入要合理且有趣。
+10.合理设置所获得的装备法术效果等，如火焰大剑增加1d4的火焰伤害等，我也可以出售物品，这需要你构建一个合理的经济系统（当然如魅力游说高会有折扣）。
+11.法术需要法术位来施放。
+12.在游玩过程中我偶尔会指示你哪里过检定时使用的属性点是错误的，你需改正并从中学习。
 13.注意记录角色升级的经验，人物的HP，GP和每件物品。
 14.注意当有选项供我选择，举例如预备法表时展示所有法术供我选择，种族（包括拓展种族）等类似，要用1234等序号标识方便我选择，注意不能使用你的推荐来省略
 15.{group_instuction}
@@ -645,9 +679,7 @@ async def get_model(
         cache=False,
     )
 
-    tools = [
-        RandomTool,
-    ]
+    tools = []
 
     agent = create_tool_calling_agent(llm, tools, prompt)
     agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, max_iterations=25)
@@ -734,12 +766,12 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 history_content = await history.aget_messages()
                 new_trace_id = uuid.uuid4()
                 param_msg = ""
-                query = {"question": text, "history": history_content}
+                query = {"question": text + DiceTool(), "history": history_content}
 
                 if len(history_content) >= 10 and "info" not in text and "group" not in text and "world" not in text:
                     param_msg = get_parameter()
                     if param_msg != "":
-                        query = {"question": f"{text} \n System: {param_msg}", "history": history_content}
+                        query = {"question": f"{text} \n{DiceTool()}\n\n{param_msg}", "history": history_content}
 
                 with get_openai_callback() as cb:
                     stream = chain_with_history.astream(
