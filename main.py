@@ -47,6 +47,7 @@ from langchain_community.utilities import (
     DuckDuckGoSearchAPIWrapper,
     TextRequestsWrapper,
 )
+from langchain_experimental.utilities import PythonREPL
 from langchain_community.document_loaders import PyPDFLoader
 import langsmith
 from dotenv import load_dotenv
@@ -58,6 +59,7 @@ load_dotenv()
 sqlite_engine = create_async_engine(
     "sqlite+aiosqlite:///data/sqlite.db", echo=True, future=True
 )
+python_repl = PythonREPL()
 
 ADMIN_ID = os.environ.get("TELEGRAM_ADMIN_ID")
 ADMIN_ID = int(ADMIN_ID)
@@ -301,24 +303,31 @@ async def set_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update.effective_chat.id, f"Model set to {message}", update.message.message_id
     )
 
+
 def message_markdown_parse(text: str) -> str:
     ss = text.split("\n")
     text_parse = ""
     for x in ss:
         # tmp_x = re.sub(r'[_\*\[\]\(\)\~>#\+-=\|\{\}\.\!]', lambda x: '\\' + x.group(), x)
-        tmp_x = re.sub(r"(?<!\\)(_|\*|\[|\]|\(|\)|\~|`|>|#|\+|-|=|\||\{|\}|\.|\!|\\)", lambda t: "\\"+t.group(), x)
+        tmp_x = re.sub(
+            r"(?<!\\)(_|\*|\[|\]|\(|\)|\~|`|>|#|\+|-|=|\||\{|\}|\.|\!|\\)",
+            lambda t: "\\" + t.group(),
+            x,
+        )
         if tmp_x.startswith("\\#"):
             tmp_x = f"*{tmp_x}*"
         elif tmp_x.startswith("\\>"):
             tmp_x = f"> {tmp_x[2:]}"
         elif tmp_x.startswith("\\`\\`\\`"):
             tmp_x = f"```{tmp_x[6:]}"
-        else: 
-            tmp_xx = re.sub(r'\\\*\\\*.+\\\*\\\*', lambda x: '*' + x.group() + '*', tmp_x)
+        else:
+            tmp_xx = re.sub(
+                r"\\\*\\\*.+\\\*\\\*", lambda x: "*" + x.group() + "*", tmp_x
+            )
             if tmp_xx != tmp_x:
                 tmp_x = tmp_xx
             else:
-                tmp_x = re.sub(r'\\\*.+\\\*', lambda x: '_' + x.group() + '_', tmp_x)
+                tmp_x = re.sub(r"\\\*.+\\\*", lambda x: "_" + x.group() + "_", tmp_x)
         text_parse += tmp_x + "\n"
     return text_parse
 
@@ -350,7 +359,7 @@ async def send_message(chat_id, text, reply_to_message_id):
             reply_to_message_id=reply_to_message_id,
             disable_web_page_preview=True,
         )
-    
+
     logging.info(
         "Message sent: chat_id=%r, reply_to_message_id=%r, message_id=%r",
         chat_id,
@@ -518,6 +527,7 @@ def RandomTool(low: int, high: int) -> str:
     x = random.randint(low, high)
     return str(x)
 
+
 async def get_model(
     model: str = DEFAULT_MODEL, language: str = "en"
 ) -> RunnableWithMessageHistory:
@@ -611,6 +621,22 @@ async def get_model(
     )
     tools.append(toolkit.get_tools()[0])
 
+    def self_python_repl_run(command: str, timeout: int | None = None) -> str:
+        """Run a Python command in the REPL."""
+        try:
+            result = python_repl.run(command, timeout=timeout)
+            logging.info(f"Python REPL result: {result}")
+            return result
+        except Exception as e:
+            return f"Execution Error: {e}"
+
+    repl_tool = Tool(
+        name="python_repl",
+        description="A Python shell. Use this to execute python commands. Input should be a valid python command. If you want to see the output of a value, you should print it out with `print(...)`.",
+        func=self_python_repl_run,
+    )
+    tools.append(repl_tool)
+
     agent = create_tool_calling_agent(llm, tools, prompt)
     agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
     chain = agent_executor  # | StrOutputParser()
@@ -628,7 +654,11 @@ async def get_model(
 async def get_vision_model(model: str = VISION_MODEL):
     llm = (
         ChatOpenAI(
-            model=model, base_url=OPENAI_BASE_URL, streaming=True, stream_usage=True, temperature=0.7
+            model=model,
+            base_url=OPENAI_BASE_URL,
+            streaming=True,
+            stream_usage=True,
+            temperature=0.7,
         )
         | StrOutputParser()
     )
@@ -775,7 +805,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 query = {"question": text, "history": history_content}
                 if pdf_content is not None and pdf_content != "":
                     query["pdf_content"] = [SystemMessage(content=pdf_content)]
-                
+
                 with get_openai_callback() as cb:
                     stream = chain_with_history.astream(
                         query,
@@ -800,28 +830,33 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     step_action: str = ass.action.log
                                     idx = step_action.find("responded:")
                                     if idx != -1:
-                                        respond = step_action[min(idx + 10,len(step_action)):]
+                                        respond = step_action[
+                                            min(idx + 10, len(step_action)) :
+                                        ]
                                         step_action = step_action[:idx]
-                                        step_action = step_action.replace("\n", "").replace("\r", "")
+                                        step_action = step_action.replace(
+                                            "\n", ""
+                                        ).replace("\r", "")
                                         reply += respond
                                         if first_update_timestamp is None:
                                             first_update_timestamp = time.time()
                                         if (
                                             time.time()
-                                            >= first_update_timestamp + FIRST_BATCH_DELAY
+                                            >= first_update_timestamp
+                                            + FIRST_BATCH_DELAY
                                         ):
-                                            await replymsgs.update(reply + " [!Generating...]")
-                                    action_logs.append(
-                                        step_action.strip()
-                                    )
-                    usage = f'''
+                                            await replymsgs.update(
+                                                reply + " [!Generating...]"
+                                            )
+                                    action_logs.append(step_action.strip())
+                    usage = f"""
 ```
 prompt_tokens: {cb.prompt_tokens} (cached: {cb.prompt_tokens_cached})
 completion_tokens: {cb.completion_tokens}
 total_tokens: {cb.total_tokens}
 total_cost: {cb.total_cost}
 ```
-                    '''
+                    """
                 if pdf_messages := query.get("pdf_content", []):
                     if pdf_messages is not None and len(pdf_messages) >= 1:
                         pdf_m = pdf_messages[0]
