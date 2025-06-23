@@ -986,22 +986,10 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def post_init(application):
-    await application.bot.set_my_commands(
-        [
-            ("ping", "Test bot connectivity"),
-            ("add_whitelist", "Add this group to whitelist (only admin)"),
-            ("del_whitelist", "Delete this group from whitelist (only admin)"),
-            ("get_whitelist", "List groups in whitelist (only admin)"),
-            ("set_model", "Set AI model (only admin)"),
-            ("select_model", "Select AI model (only admin)"),
-        ]
-    )
-
-
 @only_admin
 async def select_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id,
+    eff_id = update.effective_chat.id
+    chat_id = update.message.from_user.id
     select_models = [
         "/set_model qwen-plus-latest",
         "/set_model qwen3-235b-a22b",
@@ -1010,10 +998,18 @@ async def select_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/set_model gpt-4o-2024-11-20",
     ]
 
+    if eff_id != chat_id:
+        await application.bot.send_message(
+            chat_id=eff_id,
+            text="Select models in private chat now!",
+        )
+
     buttons = [
-        [telegram.KeyboardButton(
-            text=model,
-        )]
+        [
+            telegram.KeyboardButton(
+                text=model,
+            )
+        ]
         for model in select_models
     ]
     await application.bot.send_message(
@@ -1025,6 +1021,19 @@ async def select_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
             resize_keyboard=True,
             one_time_keyboard=True,
         ),
+    )
+
+
+async def post_init(application):
+    await application.bot.set_my_commands(
+        [
+            ("ping", "Test bot connectivity"),
+            ("add_whitelist", "Add this group to whitelist (only admin)"),
+            ("del_whitelist", "Delete this group from whitelist (only admin)"),
+            ("get_whitelist", "List groups in whitelist (only admin)"),
+            ("set_model", "Set AI model (only admin)"),
+            ("select_model", "Select AI model (only admin)"),
+        ]
     )
 
 
