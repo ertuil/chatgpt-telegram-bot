@@ -603,8 +603,8 @@ async def get_model(
                 api_wrapper=DuckDuckGoSearchAPIWrapper(max_results=TOTAL_WEB_PAGE)
             )
         )
-    elif os.environ.get("TAVILY_API_KEY"):
-
+    
+    if os.environ.get("TAVILY_API_KEY"):
         tavtool = TavilySearch(
             max_results=5,
             search_depth="advanced",
@@ -614,7 +614,11 @@ async def get_model(
         )
 
         tools.append(tavtool)
-    else:
+    
+    if (
+        os.environ.get("GOOGLE_CSE_ID", None) is not None
+        and os.environ.get("GOOGLE_API_KEY", None) is not None
+    ):
         search_wrapper = GoogleSearchAPIWrapperSelf(k=TOTAL_WEB_PAGE)
         google_search = Tool(
             name="google_search",
