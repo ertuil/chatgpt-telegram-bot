@@ -38,6 +38,7 @@ from langchain_community.tools import (
     ArxivQueryRun,
     WikipediaQueryRun,
     WolframAlphaQueryRun,
+    TavilySearchResults
 )
 from langchain_community.agent_toolkits.openapi.toolkit import RequestsToolkit
 from langchain_google_community import GoogleSearchAPIWrapper
@@ -562,14 +563,37 @@ async def get_model(
     ]
 
     if (
-        os.environ.get("GOOGLE_CSE_ID", None) is None
-        or os.environ.get("GOOGLE_API_KEY", None) is None
+        (os.environ.get("GOOGLE_CSE_ID", None) is None
+        or os.environ.get("GOOGLE_API_KEY", None) is None)
+        and os.environ.get("TAVILY_API_KEY", None) is None
     ):
         tools.append(
             DuckDuckGoSearchRun(
                 api_wrapper=DuckDuckGoSearchAPIWrapper(max_results=TOTAL_WEB_PAGE)
             )
         )
+    elif os.environ.get("TAVILY_API_KEY"):
+
+        tavtool = TavilySearchResults(
+            max_results=5,
+            search_depth="advanced",
+            include_answer=True,
+            include_raw_content=True,
+            include_images=False,
+        )
+
+        @tool
+        async def tavily_web_search(query: str) -> str:
+            """Search the Internet and get contents from many website sources."""
+            result = await tavtool.ainvoke(query)
+            item_msgs = []
+            for item in result:
+                msg = f"Title: {item['title']}\nUrl: {item['url']}\n"
+                msg += f"Content: {item['content'].replace('\n', ' ')}\n"
+                item_msgs.append(msg)
+            return "\n\n".join(item_msgs)
+
+        tools.append(tavily_web_search)
     else:
         search_wrapper = GoogleSearchAPIWrapperSelf(k=TOTAL_WEB_PAGE)
         google_search = Tool(
