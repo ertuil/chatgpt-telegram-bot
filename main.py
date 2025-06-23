@@ -655,15 +655,15 @@ async def get_model(
             else:
                 raise ValueError(f"Invalid return type: {self.response_content_type}")
 
-    toolkit = RequestsToolkit(
-        requests_wrapper=SmallSizeRequestsWrapper(
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"
-            }
-        ),
-        allow_dangerous_requests=True,
-    )
-    tools.append(toolkit.get_tools()[0])
+    # toolkit = RequestsToolkit(
+    #     requests_wrapper=SmallSizeRequestsWrapper(
+    #         headers={
+    #             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"
+    #         }
+    #     ),
+    #     allow_dangerous_requests=True,
+    # )
+    # tools.append(toolkit.get_tools()[0])
 
     # def self_python_repl_run(command: str, timeout: int | None = None) -> str:
     #     """Run a Python command in the REPL."""
@@ -691,7 +691,15 @@ async def get_model(
                 ],
                 "env": {"MCP_ALLOW_SYSTEM_ACCESS": "0"},
                 "transport": "stdio",
-            }
+            },
+            "fetch-webpage": {
+                "command": "uvx",
+                "args": [
+                    "mcp-server-fetch",
+                    "--ignore-robots-txt",
+                    "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36 Edg/137.0.0.0"
+                ],
+            },
         }
     )
 
