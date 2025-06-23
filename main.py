@@ -1001,7 +1001,7 @@ async def post_init(application):
 
 @only_admin
 async def select_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.message.from_user.id
+    chat_id = update.effective_chat.id,
     select_models = [
         "/set_model qwen-plus-latest",
         "/set_model qwen3-235b-a22b",
