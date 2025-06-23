@@ -17,14 +17,21 @@ from telegram.ext import (
     MessageHandler,
     filters,
     ContextTypes,
+    CallbackQueryHandler,
 )
 import openai
 from telegram.ext._application import BT
 from telegram.error import RetryAfter, NetworkError, BadRequest
 from telegram.constants import ParseMode
+import telegram
 from sqlalchemy.ext.asyncio import create_async_engine
 from langchain_community.chat_message_histories import SQLChatMessageHistory
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import (
+    HumanMessage,
+    AIMessage,
+    SystemMessage,
+    AIMessageChunk,
+)
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_community.callbacks import get_openai_callback
 from langchain_core.tools.convert import tool
@@ -38,8 +45,8 @@ from langchain_community.tools import (
     ArxivQueryRun,
     WikipediaQueryRun,
     WolframAlphaQueryRun,
-    TavilySearchResults
 )
+from langchain_tavily import TavilySearch
 from langchain_community.agent_toolkits.openapi.toolkit import RequestsToolkit
 from langchain_google_community import GoogleSearchAPIWrapper
 from langchain_community.utilities import (
@@ -56,9 +63,14 @@ from bs4 import BeautifulSoup
 import uuid
 import random
 
+from deepseek import ChatDeepSeek
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
 load_dotenv()
 sqlite_engine = create_async_engine(
-    "sqlite+aiosqlite:///data/sqlite.db", echo=True, future=True
+    "sqlite+aiosqlite:///data/sqlite.db", echo=False, future=True
 )
 python_repl = PythonREPL()
 
@@ -66,7 +78,12 @@ ADMIN_ID = os.environ.get("TELEGRAM_ADMIN_ID")
 ADMIN_ID = int(ADMIN_ID)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "gpt-4o-2024-11-20")
+
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", None)
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", None)
+DASHSCOPE_BASE_URL = os.environ.get("DASHSCOPE_BASE_URL", None)
+DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", None)
+
 TOTAL_WEB_LIMIT = os.environ.get("TOTAL_WEB_LIMIT", 16000)
 TOTAL_WEB_LIMIT = int(TOTAL_WEB_LIMIT)
 TOTAL_WEB_PAGE = os.environ.get("TOTAL_WEB_PAGE", 10)
@@ -102,9 +119,9 @@ class PendingReplyManager:
     async def wait_for(self, reply_id):
         if reply_id not in self.messages:
             return
-        logging.info("PendingReplyManager waiting for %r", reply_id)
+        logger.info("PendingReplyManager waiting for %r", reply_id)
         await self.messages[reply_id].wait()
-        logging.info("PendingReplyManager waiting for %r finished", reply_id)
+        logger.info("PendingReplyManager waiting for %r finished", reply_id)
 
 
 def within_interval():
@@ -142,7 +159,7 @@ def retry(max_retry=30, interval=10):
                 except (RetryAfter, NetworkError) as e:
                     if isinstance(e, BadRequest):
                         raise
-                    logging.exception(e)
+                    logger.exception(e)
                     await asyncio.sleep(interval)
             return await func(*args, **kwargs)
 
@@ -228,7 +245,7 @@ def construct_chat_history(chat_id, msg_id):
     while True:
         key = repr((chat_id, msg_id))
         if key not in db:
-            logging.error(
+            logger.error(
                 "History message not found (chat_id=%r, msg_id=%r)", chat_id, msg_id
             )
             return None, None
@@ -236,9 +253,7 @@ def construct_chat_history(chat_id, msg_id):
         if params:
             model = params[0]
         if is_bot != should_be_bot:
-            logging.error(
-                "Role does not match (chat_id=%r, msg_id=%r)", chat_id, msg_id
-            )
+            logger.error("Role does not match (chat_id=%r, msg_id=%r)", chat_id, msg_id)
             return None, None
         messages.append(text)
         should_be_bot = not should_be_bot
@@ -246,7 +261,7 @@ def construct_chat_history(chat_id, msg_id):
             break
         msg_id = reply_id
     if len(messages) % 2 != 1:
-        logging.error(
+        logger.error(
             "First message not from user (chat_id=%r, msg_id=%r)", chat_id, msg_id
         )
         return None, None
@@ -336,7 +351,7 @@ def message_markdown_parse(text: str) -> str:
 @retry()
 @ensure_interval()
 async def send_message(chat_id, text, reply_to_message_id):
-    logging.info(
+    logger.info(
         "Sending message: chat_id=%r, reply_to_message_id=%r, text=%r",
         chat_id,
         reply_to_message_id,
@@ -353,7 +368,7 @@ async def send_message(chat_id, text, reply_to_message_id):
             parse_mode=ParseMode.MARKDOWN_V2,
         )
     except Exception as e:
-        logging.warning(f"Fallback to text mode: {e}")
+        logger.warning(f"Fallback to text mode: {e}")
         msg = await application.bot.send_message(
             chat_id,
             text,
@@ -361,7 +376,7 @@ async def send_message(chat_id, text, reply_to_message_id):
             disable_web_page_preview=True,
         )
 
-    logging.info(
+    logger.info(
         "Message sent: chat_id=%r, reply_to_message_id=%r, message_id=%r",
         chat_id,
         reply_to_message_id,
@@ -373,7 +388,7 @@ async def send_message(chat_id, text, reply_to_message_id):
 @retry()
 @ensure_interval()
 async def edit_message(chat_id, text, message_id):
-    logging.info(
+    logger.info(
         "Editing message: chat_id=%r, message_id=%r, text=%r", chat_id, message_id, text
     )
     try:
@@ -389,7 +404,7 @@ async def edit_message(chat_id, text, message_id):
                 parse_mode=ParseMode.MARKDOWN_V2,
             )
         except Exception as e:
-            logging.warning(f"Fallback to text mode: {e}")
+            logger.warning(f"Fallback to text mode: {e}")
             await application.bot.edit_message_text(
                 text,
                 chat_id=chat_id,
@@ -401,19 +416,19 @@ async def edit_message(chat_id, text, message_id):
             e.message
             == "Message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"
         ):
-            logging.info(
+            logger.info(
                 "Message not modified: chat_id=%r, message_id=%r", chat_id, message_id
             )
         else:
             raise
     else:
-        logging.info("Message edited: chat_id=%r, message_id=%r", chat_id, message_id)
+        logger.info("Message edited: chat_id=%r, message_id=%r", chat_id, message_id)
 
 
 @retry()
 @ensure_interval()
 async def delete_message(chat_id, message_id):
-    logging.info("Deleting message: chat_id=%r, message_id=%r", chat_id, message_id)
+    logger.info("Deleting message: chat_id=%r, message_id=%r", chat_id, message_id)
     try:
         await application.bot.delete_message(
             chat_id,
@@ -421,7 +436,7 @@ async def delete_message(chat_id, message_id):
         )
     except BadRequest as e:
         if e.message == "Message to delete not found":
-            logging.info(
+            logger.info(
                 "Message to delete not found: chat_id=%r, message_id=%r",
                 chat_id,
                 message_id,
@@ -429,7 +444,7 @@ async def delete_message(chat_id, message_id):
         else:
             raise
     else:
-        logging.info("Message deleted: chat_id=%r, message_id=%r", chat_id, message_id)
+        logger.info("Message deleted: chat_id=%r, message_id=%r", chat_id, message_id)
 
 
 class BotReplyMessages:
@@ -545,14 +560,30 @@ async def get_model(
             MessagesPlaceholder(variable_name="agent_scratchpad", optional=True),
         ]
     )
-    llm = ChatOpenAI(
-        model=model,
-        base_url=OPENAI_BASE_URL,
-        streaming=True,
-        stream_usage=True,
-        temperature=0.7,
-        cache=False,
-    )
+
+    ai_base_url = OPENAI_BASE_URL if "gpt" in model else DASHSCOPE_BASE_URL
+    ai_api_key = OPENAI_API_KEY if "gpt" in model else DASHSCOPE_API_KEY
+
+    if "deepseek" in model:
+        llm = ChatDeepSeek(
+            model=model,
+            base_url=ai_base_url,
+            api_key=ai_api_key,
+            streaming=True,
+            stream_usage=True,
+            temperature=0.7,
+            cache=False,
+        )
+    else:
+        llm = ChatOpenAI(
+            model=model,
+            base_url=ai_base_url,
+            api_key=ai_api_key,
+            streaming=True,
+            stream_usage=True,
+            temperature=0.7,
+            cache=False,
+        )
 
     tools = [
         RandomTool,
@@ -563,10 +594,9 @@ async def get_model(
     ]
 
     if (
-        (os.environ.get("GOOGLE_CSE_ID", None) is None
-        or os.environ.get("GOOGLE_API_KEY", None) is None)
-        and os.environ.get("TAVILY_API_KEY", None) is None
-    ):
+        os.environ.get("GOOGLE_CSE_ID", None) is None
+        or os.environ.get("GOOGLE_API_KEY", None) is None
+    ) and os.environ.get("TAVILY_API_KEY", None) is None:
         tools.append(
             DuckDuckGoSearchRun(
                 api_wrapper=DuckDuckGoSearchAPIWrapper(max_results=TOTAL_WEB_PAGE)
@@ -574,7 +604,7 @@ async def get_model(
         )
     elif os.environ.get("TAVILY_API_KEY"):
 
-        tavtool = TavilySearchResults(
+        tavtool = TavilySearch(
             max_results=5,
             search_depth="advanced",
             include_answer=True,
@@ -582,18 +612,7 @@ async def get_model(
             include_images=False,
         )
 
-        @tool
-        async def tavily_web_search(query: str) -> str:
-            """Search the Internet and get contents from many website sources."""
-            result = await tavtool.ainvoke(query)
-            item_msgs = []
-            for item in result:
-                msg = f"Title: {item['title']}\nUrl: {item['url']}\n"
-                msg += f"Content: {item['content'].replace('\n', ' ')}\n"
-                item_msgs.append(msg)
-            return "\n\n".join(item_msgs)
-
-        tools.append(tavily_web_search)
+        tools.append(tavtool)
     else:
         search_wrapper = GoogleSearchAPIWrapperSelf(k=TOTAL_WEB_PAGE)
         google_search = Tool(
@@ -649,11 +668,10 @@ async def get_model(
         """Run a Python command in the REPL."""
         try:
             result = python_repl.run(command, timeout=timeout)
-            logging.info(f"Python REPL result: {result}")
+            logger.info(f"Python REPL result: {result}")
             return result
         except Exception as e:
             return f"Execution Error: {e}"
-
 
     repl_tool = Tool(
         name="python_repl",
@@ -661,7 +679,8 @@ async def get_model(
         func=self_python_repl_run,
     )
     tools.append(repl_tool)
-
+    if "deepseek" in model:
+        return prompt | llm
     agent = create_tool_calling_agent(llm, tools, prompt)
     agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
     chain = agent_executor  # | StrOutputParser()
@@ -705,7 +724,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         p = update.message.photo[-1]
-        logging.info(f"[photo] get photo {p.file_size} {p.width}x{p.height}")
+        logger.info(f"[photo] get photo {p.file_size} {p.width}x{p.height}")
         obj: File = await p.get_file()
         image = await obj.download_as_bytearray()
         image = bytes(image)
@@ -716,8 +735,8 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         f = update.message.document
-        if f.mime_type == "application/pdf":
-            logging.info(f"[pdf] get pdf {f.file_name} {f.file_size}")
+        if f is not None and f.mime_type == "application/pdf":
+            logger.info(f"[pdf] get pdf {f.file_name} {f.file_size}")
             obj: File = await f.get_file()
             pdf = await obj.download_as_bytearray()
             pdf = bytes(pdf)
@@ -735,7 +754,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pdf_content += page.page_content
             pdf_content = f"PDF File: {f.file_name}\nContent: {pdf_content[:min(len(pdf_content), TOTAL_PDF_LIMIT)]}"
     except Exception as e:
-        logging.error(f"get pdf error: {e}")
+        logger.error(f"get pdf error: {e}")
         pdf_content = None
 
     if (
@@ -746,7 +765,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await pending_reply_manager.wait_for((chat_id, reply_to_id))
         key = repr(("session", chat_id, reply_to_id))
         if key not in db:
-            logging.error(
+            logger.error(
                 "Session message not found (chat_id=%r, msg_id=%r)",
                 chat_id,
                 reply_to_id,
@@ -764,7 +783,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         session_id = f"{chat_id}_{msg_id}"
 
-    logging.info(
+    logger.info(
         "New message: chat_id=%r, sender_id=%r, msg_id=%r, text=%r, session_id=%r",
         chat_id,
         sender_id,
@@ -779,7 +798,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         prompt = [
             (
                 "system",
-                f"You are a helpful ChatGPT Telegram bot. Answer as concisely as possible. Current Beijing Time: {current_time}",
+                f"You are a helpful AI Telegram bot. Answer as concisely as possible. Current Beijing Time: {current_time}",
             ),
             HumanMessage(
                 content=[
@@ -798,16 +817,16 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 history = SQLChatMessageHistory(
                     session_id=session_id, connection=sqlite_engine, async_mode=True
                 )
-                logging.info(f"History: {await history.aget_messages()}")
+                logger.info(f"History: {await history.aget_messages()}")
                 await history.aadd_message(HumanMessage(content=text))
                 await history.aadd_message(AIMessage(content=reply))
                 await replymsgs.update(reply)
                 await replymsgs.finalize()
                 key = repr(("session", chat_id, replymsgs.replied_msgs[0][0]))
                 db[key] = session_id
-                logging.debug(f"insert session chat_id{key}: {session_id}")
+                logger.debug(f"insert session chat_id{key}: {session_id}")
             except Exception as e:
-                logging.exception(
+                logger.exception(
                     "Error (chat_id=%r, msg_id=%r): %s",
                     chat_id,
                     msg_id,
@@ -818,6 +837,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     error_cnt = 0
     while True:
         reply = ""
+        think = ""
         usage = ""
         async with BotReplyMessages(chat_id, msg_id, f"[{model}] ") as replymsgs:
             try:
@@ -825,7 +845,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     session_id=session_id, connection=sqlite_engine, async_mode=True
                 )
                 history_content = await history.aget_messages()
-                logging.info(f"History: {history_content}")
+                logger.info(f"History: {history_content}")
                 new_trace_id = uuid.uuid4()
                 query = {"question": text, "history": history_content}
                 if pdf_content is not None and pdf_content != "":
@@ -834,46 +854,73 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 with get_openai_callback() as cb:
                     stream = chain_with_history.astream(
                         query,
-                        {"run_id": new_trace_id, "tags": [DEFAULT_MODEL]},
+                        {"run_id": new_trace_id, "tags": [model]},
                     )
                     first_update_timestamp = None
                     action_logs = []
                     async for delta in stream:
-                        logging.debug(f"debug delta: {delta}")
-                        for k, v in delta.items():
-                            if k == "output":
+                        logger.info(f"debug1 {delta} {type(delta)}")
+                        if isinstance(delta, AIMessageChunk):
+                            rv = delta.additional_kwargs.get("reasoning_content", "")
+                            v = delta.content
+                            if rv != "":
+                                if think == "":
+                                    think = "【思考】"
+                                think += rv
+                            if v != "":
+                                if not think.endswith("【回复】") and think != "":
+                                    think += "\n【回复】"
                                 reply += v
-                                if first_update_timestamp is None:
-                                    first_update_timestamp = time.time()
-                                if (
-                                    time.time()
-                                    >= first_update_timestamp + FIRST_BATCH_DELAY
-                                ):
-                                    await replymsgs.update(reply + " [!Generating...]")
-                            if k == "steps":
-                                for ass in v:
-                                    step_action: str = ass.action.log
-                                    idx = step_action.find("responded:")
-                                    if idx != -1:
-                                        respond = step_action[
-                                            min(idx + 10, len(step_action)) :
-                                        ]
-                                        step_action = step_action[:idx]
-                                        step_action = step_action.replace(
-                                            "\n", ""
-                                        ).replace("\r", "")
-                                        reply += respond
-                                        if first_update_timestamp is None:
-                                            first_update_timestamp = time.time()
-                                        if (
-                                            time.time()
-                                            >= first_update_timestamp
-                                            + FIRST_BATCH_DELAY
-                                        ):
-                                            await replymsgs.update(
-                                                reply + " [!Generating...]"
-                                            )
-                                    action_logs.append(step_action.strip())
+                            if first_update_timestamp is None:
+                                first_update_timestamp = time.time()
+                            if (
+                                time.time()
+                                >= first_update_timestamp + FIRST_BATCH_DELAY
+                            ):
+                                await replymsgs.update(
+                                    think + reply + " [!Generating...]"
+                                )
+                        else:
+                            for k, v in delta.items():
+                                logger.info(f"debug2 {k} {v}")
+
+                                if k == "output":
+                                    reply += v
+                                    if first_update_timestamp is None:
+                                        first_update_timestamp = time.time()
+                                    if (
+                                        time.time()
+                                        >= first_update_timestamp + FIRST_BATCH_DELAY
+                                    ):
+                                        await replymsgs.update(
+                                            reply + " [!Generating...]"
+                                        )
+                                if k == "steps":
+                                    for ass in v:
+                                        logger.info(f"debug3 {ass}")
+                                        step_action: str = ass.action.log
+                                        idx = step_action.find("responded:")
+                                        if idx != -1:
+                                            respond = step_action[
+                                                min(idx + 10, len(step_action)) :
+                                            ]
+                                            step_action = step_action[:idx]
+                                            step_action = step_action.replace(
+                                                "\n", ""
+                                            ).replace("\r", "")
+                                            reply += respond
+                                            if first_update_timestamp is None:
+                                                first_update_timestamp = time.time()
+                                            if (
+                                                time.time()
+                                                >= first_update_timestamp
+                                                + FIRST_BATCH_DELAY
+                                            ):
+                                                await replymsgs.update(
+                                                    reply + " [!Generating...]"
+                                                )
+                                        logger.info(f"debug step_action: {step_action}")
+                                        action_logs.append(step_action.strip())
                     usage = f"""
 ```
 prompt_tokens: {cb.prompt_tokens} (cached: {cb.prompt_tokens_cached})
@@ -897,16 +944,16 @@ total_cost: {cb.total_cost}
                             share_url = client.share_run(new_trace_id)
                             reply += f"\n日志地址：{share_url}"
                     except Exception as e:
-                        logging.warning(f"get log error: {e}")
-                await replymsgs.update(reply + usage)
+                        logger.warning(f"get log error: {e}")
+                await replymsgs.update(think + reply + usage)
                 await replymsgs.finalize()
                 key = repr(("session", chat_id, replymsgs.replied_msgs[0][0]))
                 db[key] = session_id
-                logging.debug(f"insert session chat_id{key}: {session_id}")
+                logger.debug(f"insert session chat_id{key}: {session_id}")
                 return
             except Exception as e:
                 error_cnt += 1
-                logging.exception(
+                logger.exception(
                     "Error (chat_id=%r, msg_id=%r, cnt=%r): %s",
                     chat_id,
                     msg_id,
@@ -946,8 +993,38 @@ async def post_init(application):
             ("add_whitelist", "Add this group to whitelist (only admin)"),
             ("del_whitelist", "Delete this group from whitelist (only admin)"),
             ("get_whitelist", "List groups in whitelist (only admin)"),
-            ("set_model", "Set GPT model (only admin)"),
+            ("set_model", "Set AI model (only admin)"),
+            ("select_model", "Select AI model (only admin)"),
         ]
+    )
+
+
+@only_admin
+async def select_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.from_user.id
+    select_models = [
+        "/set_model qwen-plus-latest",
+        "/set_model qwen3-235b-a22b",
+        "/set_model deepseek-r1",
+        "/set_model deepseek-v3",
+        "/set_model gpt-4o-2024-11-20",
+    ]
+
+    buttons = [
+        [telegram.KeyboardButton(
+            text=model,
+        )]
+        for model in select_models
+    ]
+    await application.bot.send_message(
+        chat_id=chat_id,
+        text="Selecting models",
+        reply_markup=telegram.ReplyKeyboardMarkup(
+            keyboard=buttons,
+            selective=True,
+            resize_keyboard=True,
+            one_time_keyboard=True,
+        ),
     )
 
 
@@ -956,8 +1033,11 @@ if __name__ == "__main__":
         "%(asctime)s %(process)d %(levelname)s %(message)s"
     )
 
+    sqlLogger = logging.getLogger("sqlalchemy.engine.Engine")
+    sqlLogger.setLevel(logging.ERROR)
+
     rootLogger = logging.getLogger()
-    rootLogger.setLevel(logging.DEBUG)
+    rootLogger.setLevel(logging.WARNING)
 
     fileHandler = logging.FileHandler("chatgpt-telegram-bot.log")
     fileHandler.setFormatter(logFormatter)
@@ -966,11 +1046,6 @@ if __name__ == "__main__":
     consoleHandler = logging.StreamHandler()
     consoleHandler.setFormatter(logFormatter)
     rootLogger.addHandler(consoleHandler)
-
-    sqlLogger = logging.getLogger("sqlalchemy.engine.Engine")
-    sqlLogger.setLevel(logging.WARNING)
-    httpLogger = logging.getLogger("HTTP")
-    httpLogger.setLevel(logging.WARNING)
 
     with shelve.open("data/db") as db:
         if "whitelist" not in db:
@@ -984,6 +1059,7 @@ if __name__ == "__main__":
             .concurrent_updates(True)
             .build()
         )
+
         application.add_handler(
             MessageHandler(
                 (filters.TEXT | filters.PHOTO | filters.Document.PDF)
@@ -996,4 +1072,6 @@ if __name__ == "__main__":
         application.add_handler(CommandHandler("del_whitelist", del_whitelist_handler))
         application.add_handler(CommandHandler("get_whitelist", get_whitelist_handler))
         application.add_handler(CommandHandler("set_model", set_model))
+        application.add_handler(CommandHandler("select_model", select_model))
+
         application.run_polling()
