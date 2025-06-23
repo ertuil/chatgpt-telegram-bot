@@ -55,6 +55,7 @@ from langchain_community.utilities import (
     DuckDuckGoSearchAPIWrapper,
     TextRequestsWrapper,
 )
+from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_experimental.utilities import PythonREPL
 from langchain_community.document_loaders import PyPDFLoader
 import langsmith
@@ -664,21 +665,39 @@ async def get_model(
     )
     tools.append(toolkit.get_tools()[0])
 
-    def self_python_repl_run(command: str, timeout: int | None = None) -> str:
-        """Run a Python command in the REPL."""
-        try:
-            result = python_repl.run(command, timeout=timeout)
-            logger.info(f"Python REPL result: {result}")
-            return result
-        except Exception as e:
-            return f"Execution Error: {e}"
+    # def self_python_repl_run(command: str, timeout: int | None = None) -> str:
+    #     """Run a Python command in the REPL."""
+    #     try:
+    #         result = python_repl.run(command, timeout=timeout)
+    #         logger.info(f"Python REPL result: {result}")
+    #         return result
+    #     except Exception as e:
+    #         return f"Execution Error: {e}"
 
-    repl_tool = Tool(
-        name="python_repl",
-        description="A Python shell. Use this to execute python commands. Input should be a valid python command. If you want to see the output of a value, you should print it out with `print(...)`.",
-        func=self_python_repl_run,
+    # repl_tool = Tool(
+    #     name="python_repl",
+    #     description="A Python shell. Use this to execute python commands. Input should be a valid python command. If you want to see the output of a value, you should print it out with `print(...)`.",
+    #     func=self_python_repl_run,
+    # )
+
+    client = MultiServerMCPClient(
+        {
+            "python-interpreter": {
+                "command": "uvx",
+                "args": [
+                    "mcp-python-interpreter",
+                    "--dir",
+                    "./workspace",
+                ],
+                "env": {"MCP_ALLOW_SYSTEM_ACCESS": "0"},
+                "transport": "stdio",
+            }
+        }
     )
-    tools.append(repl_tool)
+
+    python_repl_tools = await client.get_tools()
+    tools.extend(python_repl_tools)
+
     if "deepseek" in model:
         return prompt | llm
     agent = create_tool_calling_agent(llm, tools, prompt)
