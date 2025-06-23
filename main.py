@@ -607,7 +607,7 @@ async def get_model(
     if os.environ.get("TAVILY_API_KEY"):
         tavtool = TavilySearch(
             max_results=5,
-            search_depth="advanced",
+            search_depth="basic",
             include_answer=True,
             include_raw_content=True,
             include_images=False,
