@@ -7,9 +7,7 @@ import re
 import shelve
 import time
 import traceback
-from typing import Any, Dict, Union
 import uuid
-import aiohttp
 from telegram import File, Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -17,10 +15,8 @@ from telegram.ext import (
     MessageHandler,
     filters,
     ContextTypes,
-    CallbackQueryHandler,
 )
 import openai
-from telegram.ext._application import BT
 from telegram.error import RetryAfter, NetworkError, BadRequest
 from telegram.constants import ParseMode
 import telegram
@@ -29,14 +25,9 @@ from langchain_community.chat_message_histories import SQLChatMessageHistory
 from langchain_core.messages import (
     HumanMessage,
     AIMessage,
-    SystemMessage,
-    AIMessageChunk,
 )
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_community.callbacks import get_openai_callback
 from langchain_core.tools.convert import tool
-from langchain.agents import AgentExecutor, create_tool_calling_agent
-from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_openai import ChatOpenAI
 from langchain_core.tools import Tool
 from langchain_core.output_parsers import StrOutputParser
@@ -47,20 +38,24 @@ from langchain_community.tools import (
     WolframAlphaQueryRun,
 )
 from langchain_tavily import TavilySearch
-from langchain_community.agent_toolkits.openapi.toolkit import RequestsToolkit
 from langchain_google_community import GoogleSearchAPIWrapper
 from langchain_community.utilities import (
     WikipediaAPIWrapper,
     WolframAlphaAPIWrapper,
     DuckDuckGoSearchAPIWrapper,
-    TextRequestsWrapper,
 )
+from langchain_core.messages.utils import trim_messages, count_tokens_approximately
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_experimental.utilities import PythonREPL
 from langchain_community.document_loaders import PyPDFLoader
 import langsmith
+
+from langgraph.prebuilt import create_react_agent
+from langgraph.graph.graph import CompiledGraph
+from langgraph.checkpoint.memory import InMemorySaver
+
+checkpointer = InMemorySaver()
+
 from dotenv import load_dotenv
-from bs4 import BeautifulSoup
 import uuid
 import random
 
@@ -73,7 +68,6 @@ load_dotenv()
 sqlite_engine = create_async_engine(
     "sqlite+aiosqlite:///data/sqlite.db", echo=False, future=True
 )
-python_repl = PythonREPL()
 
 ADMIN_ID = os.environ.get("TELEGRAM_ADMIN_ID")
 ADMIN_ID = int(ADMIN_ID)
@@ -369,7 +363,8 @@ async def send_message(chat_id, text, reply_to_message_id):
             parse_mode=ParseMode.MARKDOWN_V2,
         )
     except Exception as e:
-        logger.warning(f"Fallback to text mode: {e}")
+        traceback.print_exc()
+        logger.error(f"Fallback to text mode: {e}")
         msg = await application.bot.send_message(
             chat_id,
             text,
@@ -396,23 +391,24 @@ async def edit_message(chat_id, text, message_id):
 
         try:
             text_parse = message_markdown_parse(text)
-
             await application.bot.edit_message_text(
                 text_parse,
                 chat_id=chat_id,
                 message_id=message_id,
-                disable_web_page_preview=True,
+                disable_web_page_preview=False,
                 parse_mode=ParseMode.MARKDOWN_V2,
             )
         except Exception as e:
-            logger.warning(f"Fallback to text mode: {e}")
+            traceback.print_exc()
+            logger.error(f"Fallback to text mode: {e}")
             await application.bot.edit_message_text(
                 text,
                 chat_id=chat_id,
                 message_id=message_id,
-                disable_web_page_preview=True,
+                disable_web_page_preview=False,
             )
     except BadRequest as e:
+        traceback.print_exc()
         if (
             e.message
             == "Message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"
@@ -545,27 +541,15 @@ def RandomTool(low: int, high: int) -> str:
     return str(x)
 
 
-async def get_model(
-    model: str = DEFAULT_MODEL, language: str = "en"
-) -> RunnableWithMessageHistory:
+async def get_model(model: str = DEFAULT_MODEL, language: str = "en") -> CompiledGraph:
     current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                f"You are a helpful ChatGPT Telegram bot. Answer as concisely as possible. Current Beijing Time: f{current_time}",
-            ),
-            MessagesPlaceholder(variable_name="history", optional=True),
-            MessagesPlaceholder(variable_name="pdf_content", optional=True),
-            ("human", "{question}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad", optional=True),
-        ]
-    )
 
     ai_base_url = OPENAI_BASE_URL if "gpt" in model else DASHSCOPE_BASE_URL
     ai_api_key = OPENAI_API_KEY if "gpt" in model else DASHSCOPE_API_KEY
 
-    if "deepseek" in model:
+    tools = []
+
+    if "deepseek" in model or "qwen3-235b-a22b" in model:
         llm = ChatDeepSeek(
             model=model,
             base_url=ai_base_url,
@@ -586,13 +570,15 @@ async def get_model(
             cache=False,
         )
 
-    tools = [
-        RandomTool,
-        ArxivQueryRun(),
-        WikipediaQueryRun(
-            api_wrapper=WikipediaAPIWrapper(doc_content_chars_max=TOTAL_WEB_LIMIT)
-        ),
-    ]
+    tools.extend(
+        [
+            RandomTool,
+            ArxivQueryRun(),
+            WikipediaQueryRun(
+                api_wrapper=WikipediaAPIWrapper(doc_content_chars_max=TOTAL_WEB_LIMIT)
+            ),
+        ]
+    )
 
     if (
         os.environ.get("GOOGLE_CSE_ID", None) is None
@@ -603,10 +589,11 @@ async def get_model(
                 api_wrapper=DuckDuckGoSearchAPIWrapper(max_results=TOTAL_WEB_PAGE)
             )
         )
-    
+
     if os.environ.get("TAVILY_API_KEY"):
+
         tavtool = TavilySearch(
-            max_results=5,
+            max_results=3,
             search_depth="basic",
             include_answer=True,
             include_raw_content=True,
@@ -614,7 +601,7 @@ async def get_model(
         )
 
         tools.append(tavtool)
-    
+
     if (
         os.environ.get("GOOGLE_CSE_ID", None) is not None
         and os.environ.get("GOOGLE_API_KEY", None) is not None
@@ -636,54 +623,6 @@ async def get_model(
             )
         )
 
-    class SmallSizeRequestsWrapper(TextRequestsWrapper):
-        async def _aget_resp_content(
-            self, response: aiohttp.ClientResponse
-        ) -> Union[str, Dict[str, Any]]:
-            if self.response_content_type == "text":
-                content = await response.text()
-                if response.content_type == "text/html":
-                    dom = BeautifulSoup(content, "html.parser")
-                    result = ""
-                    element = dom.find("title")
-                    if element is not None:
-                        result += element.get_text() + "\n"
-                    text = dom.get_text(separator="\t", strip=True)
-                    result += text[: min(len(text), TOTAL_WEB_LIMIT)]
-                    return result
-                if len(content) > TOTAL_WEB_LIMIT:
-                    return content[:TOTAL_WEB_LIMIT]
-                return content
-            elif self.response_content_type == "json":
-                return await response.json()
-            else:
-                raise ValueError(f"Invalid return type: {self.response_content_type}")
-
-    # toolkit = RequestsToolkit(
-    #     requests_wrapper=SmallSizeRequestsWrapper(
-    #         headers={
-    #             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"
-    #         }
-    #     ),
-    #     allow_dangerous_requests=True,
-    # )
-    # tools.append(toolkit.get_tools()[0])
-
-    # def self_python_repl_run(command: str, timeout: int | None = None) -> str:
-    #     """Run a Python command in the REPL."""
-    #     try:
-    #         result = python_repl.run(command, timeout=timeout)
-    #         logger.info(f"Python REPL result: {result}")
-    #         return result
-    #     except Exception as e:
-    #         return f"Execution Error: {e}"
-
-    # repl_tool = Tool(
-    #     name="python_repl",
-    #     description="A Python shell. Use this to execute python commands. Input should be a valid python command. If you want to see the output of a value, you should print it out with `print(...)`.",
-    #     func=self_python_repl_run,
-    # )
-
     client = MultiServerMCPClient(
         {
             "python-interpreter": {
@@ -701,30 +640,38 @@ async def get_model(
                 "args": [
                     "mcp-server-fetch",
                     "--ignore-robots-txt",
-                    "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36 Edg/137.0.0.0"
+                    "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36 Edg/137.0.0.0",
                 ],
                 "transport": "stdio",
             },
         }
     )
 
-    python_repl_tools = await client.get_tools()
-    tools.extend(python_repl_tools)
+    mcp_tools = await client.get_tools()
+    tools.extend(mcp_tools)
 
     if "deepseek" in model:
-        return prompt | llm
-    agent = create_tool_calling_agent(llm, tools, prompt)
-    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
-    chain = agent_executor  # | StrOutputParser()
-    # chain_with_history = RunnableWithMessageHistory(
-    #     chain,
-    #     lambda session_id: SQLChatMessageHistory(
-    #         session_id=session_id, connection=sqlite_engine, async_mode=True
-    #     ),
-    #     input_messages_key="question",
-    #     history_messages_key="history",
-    # ) | StrOutputParser()
-    return chain
+        tools = []
+
+    def pre_model_hook(state):
+        trimmed_messages = trim_messages(
+            state["messages"],
+            strategy="last",
+            token_counter=count_tokens_approximately,
+            max_tokens=120000,
+            start_on="human",
+            end_on=("human", "tool"),
+        )
+        return {"llm_input_messages": trimmed_messages}
+
+    agent = create_react_agent(
+        llm,
+        tools,
+        prompt=f"You are a helpful AI Telegram bot. Answer as concisely as possible. Current Beijing Time: f{current_time}",
+        pre_model_hook=pre_model_hook,
+        checkpointer=checkpointer,
+    )
+    return agent
 
 
 async def get_vision_model(model: str = VISION_MODEL):
@@ -823,7 +770,8 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text,
         session_id,
     )
-    chain_with_history = await get_model(model=model)
+    agent = await get_model(model=model)
+
     if image is not None:
         image_b64 = base64.b64encode(image).decode("ascii")
         current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
@@ -870,89 +818,78 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     while True:
         reply = ""
         think = ""
+        think_end = ""
         usage = ""
         async with BotReplyMessages(chat_id, msg_id, f"[{model}] ") as replymsgs:
             try:
                 history = SQLChatMessageHistory(
                     session_id=session_id, connection=sqlite_engine, async_mode=True
                 )
-                history_content = await history.aget_messages()
-                logger.info(f"History: {history_content}")
+
                 new_trace_id = uuid.uuid4()
-                query = {"question": text, "history": history_content}
+                await history.aadd_message(HumanMessage(content=text))
                 if pdf_content is not None and pdf_content != "":
-                    query["pdf_content"] = [SystemMessage(content=pdf_content)]
+                    query[-1].content += f"\n\nPDF file content: {pdf_content}"
+                query = await history.aget_messages()
+                logger.info(f"History: {query}")
 
                 with get_openai_callback() as cb:
-                    stream = chain_with_history.astream(
-                        query,
-                        {"run_id": new_trace_id, "tags": [model]},
+                    stream = agent.astream(
+                        {"messages": [query[-1]]},
+                        {
+                            "run_id": new_trace_id,
+                            "tags": [model],
+                            "configurable": {"thread_id": session_id},
+                            "recursion_limit": 30,
+                        },
                     )
                     first_update_timestamp = None
                     action_logs = []
                     async for delta in stream:
-                        logger.info(f"debug1 {delta} {type(delta)}")
-                        if isinstance(delta, AIMessageChunk):
-                            rv = delta.additional_kwargs.get("reasoning_content", "")
-                            v = delta.content
-                            if rv != "":
-                                if think == "":
-                                    think = "【思考】"
-                                think += rv
-                            if v != "":
-                                if not think.endswith("【回复】") and think != "":
-                                    think += "\n【回复】"
-                                reply += v
-                            if first_update_timestamp is None:
-                                first_update_timestamp = time.time()
-                            if (
-                                time.time()
-                                >= first_update_timestamp + FIRST_BATCH_DELAY
-                            ):
-                                await replymsgs.update(
-                                    think + reply + " [!Generating...]"
-                                )
-                        else:
-                            for k, v in delta.items():
-                                logger.info(f"debug2 {k} {v}")
+                        logger.info(f"debug1 {delta}")
+                        for k, v in delta.items():
+                            if k == "agent":
+                                messages = v["messages"]
+                                message_0 = messages[0]
+                                reply += message_0.content
 
-                                if k == "output":
-                                    reply += v
-                                    if first_update_timestamp is None:
-                                        first_update_timestamp = time.time()
-                                    if (
-                                        time.time()
-                                        >= first_update_timestamp + FIRST_BATCH_DELAY
-                                    ):
-                                        await replymsgs.update(
-                                            reply + " [!Generating...]"
-                                        )
-                                if k == "steps":
-                                    for ass in v:
-                                        logger.info(f"debug3 {ass}")
-                                        step_action: str = ass.action.log
-                                        idx = step_action.find("responded:")
-                                        if idx != -1:
-                                            respond = step_action[
-                                                min(idx + 10, len(step_action)) :
-                                            ]
-                                            step_action = step_action[:idx]
-                                            step_action = step_action.replace(
-                                                "\n", ""
-                                            ).replace("\r", "")
-                                            reply += respond
-                                            if first_update_timestamp is None:
-                                                first_update_timestamp = time.time()
-                                            if (
-                                                time.time()
-                                                >= first_update_timestamp
-                                                + FIRST_BATCH_DELAY
-                                            ):
-                                                await replymsgs.update(
-                                                    reply + " [!Generating...]"
-                                                )
-                                        logger.info(f"debug step_action: {step_action}")
-                                        action_logs.append(step_action.strip())
+                                additional_kwargs = message_0.additional_kwargs
+                                if additional_kwargs is None:
+                                    additional_kwargs = {}
+                                tool_calls = additional_kwargs.get("tool_calls", [])
+
+                                for tc in tool_calls:
+                                    fc = tc.get("function", {})
+                                    if fc.get("name") is None:
+                                        fc = tc.get("tool", {})
+                                    tcn = fc.get("name")
+                                    tca = fc.get("arguments")
+                                    tca = (
+                                        tca.replace("\n", " ")
+                                        .replace("\r", " ")
+                                        .replace("\t", " ")
+                                    )
+                                    tcs = f"{tcn}: {tca}"
+                                    action_logs.append(tcs.strip())
+
+                                reasoning = additional_kwargs.get(
+                                    "reasoning_content", ""
+                                )
+                                if reasoning != "":
+                                    if think == "":
+                                        think = "【思考】\n```\n"
+                                        think_end = "\n```\n【回复】"
+                                    think += f"{reasoning}"
+
+                                if first_update_timestamp is None:
+                                    first_update_timestamp = time.time()
+                                if (
+                                    time.time()
+                                    >= first_update_timestamp + FIRST_BATCH_DELAY
+                                ):
+                                    await replymsgs.update(
+                                        think + think_end + reply + " [!Generating...]"
+                                    )
                     usage = f"""
 ```
 prompt_tokens: {cb.prompt_tokens} (cached: {cb.prompt_tokens_cached})
@@ -961,23 +898,18 @@ total_tokens: {cb.total_tokens}
 total_cost: {cb.total_cost}
 ```
                     """
-                if pdf_messages := query.get("pdf_content", []):
-                    if pdf_messages is not None and len(pdf_messages) >= 1:
-                        pdf_m = pdf_messages[0]
-                        await history.aadd_message(pdf_m)
-                await history.aadd_message(HumanMessage(content=text))
                 await history.aadd_message(AIMessage(content=reply))
                 if len(action_logs) > 0:
-                    reply += "\n【日志】"
+                    reply += "\n\n【工具/MCP】"
                     reply += "\n".join(action_logs)
                     try:
                         if os.environ.get("LANGCHAIN_API_KEY", None) is not None:
                             client = langsmith.Client()
                             share_url = client.share_run(new_trace_id)
-                            reply += f"\n日志地址：{share_url}"
+                            reply += f"\n【日志】\n{share_url}"
                     except Exception as e:
                         logger.warning(f"get log error: {e}")
-                await replymsgs.update(think + reply + usage)
+                await replymsgs.update(think + think_end + reply + usage)
                 await replymsgs.finalize()
                 key = repr(("session", chat_id, replymsgs.replied_msgs[0][0]))
                 db[key] = session_id
