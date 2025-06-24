@@ -657,11 +657,14 @@ async def get_model(model: str = DEFAULT_MODEL, language: str = "en") -> Compile
                 ],
                 "transport": "stdio",
             },
-            "yfmcp": {
+            "basic-memory": {
                 "command": "uvx",
-                "args": ["yfmcp@latest"],
+                "args": [
+                    "basic-memory",
+                    "mcp"
+                ],
                 "transport": "stdio",
-            },
+            }
         }
     )
 
