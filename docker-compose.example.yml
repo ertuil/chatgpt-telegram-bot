@@ -3,10 +3,11 @@ version: '3'
 services:
     bot:
         image: ghcr.io/ertuil/chatgpt-telegram-bot:latest
-        command: python main.py
+        command: uv run main.py
         restart: always
         volumes:
           - ./data:/app/data
+          - ./workspace:/app/workspace
         environment:
           - OPENAI_API_KEY=
           - TELEGRAM_BOT_TOKEN=

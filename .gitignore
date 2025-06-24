@@ -8,3 +8,4 @@ db
 docker-compose.yml
 .vscode
 workspace
+.venv

@@ -1,0 +1,30 @@
+[project]
+name = "chatgpt-telegram-bot"
+version = "0.1.0"
+description = "LLM Telegram Bot"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aiosqlite>=0.21.0",
+    "arxiv>=2.2.0",
+    "duckduckgo-search>=8.0.4",
+    "greenlet>=3.2.3",
+    "langchain-community>=0.3.26",
+    "langchain-core>=0.3.66",
+    "langchain-google-community>=2.0.7",
+    "langchain-mcp-adapters>=0.1.7",
+    "langchain-openai>=0.3.25",
+    "langchain-tavily>=0.2.4",
+    "langgraph>=0.4.8",
+    "langgraph-checkpoint>=2.1.0",
+    "langsmith>=0.4.1",
+    "openai>=1.91.0",
+    "pydantic>=2.11.7",
+    "python-telegram-bot>=22.1",
+    "sqlalchemy>=2.0.41",
+    "typing-extensions>=4.14.0",
+    "wikipedia>=1.4.0",
+    "wolframalpha>=5.1.3",
+]
+
+
