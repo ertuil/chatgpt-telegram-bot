@@ -3,7 +3,7 @@ RUN apk add libstdc++
 WORKDIR /app
 RUN pip install uv
 ADD . /app
-RUN addgroup gpt && adduser -G gpt -u 1000 -s /bin/false gpt
+RUN addgroup gpt && adduser -H -D -G gpt -u 1000 -s /bin/false gpt
 RUN mkdir /app/workspace
 RUN chown -R gpt:gpt /app
 USER gpt
