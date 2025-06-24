@@ -33,7 +33,6 @@ from langchain_core.tools import Tool
 from langchain_core.output_parsers import StrOutputParser
 from langchain_community.tools import (
     DuckDuckGoSearchRun,
-    ArxivQueryRun,
     WikipediaQueryRun,
     WolframAlphaQueryRun,
 )
@@ -573,7 +572,6 @@ async def get_model(model: str = DEFAULT_MODEL, language: str = "en") -> Compile
     tools.extend(
         [
             RandomTool,
-            ArxivQueryRun(),
             WikipediaQueryRun(
                 api_wrapper=WikipediaAPIWrapper(doc_content_chars_max=TOTAL_WEB_LIMIT)
             ),
@@ -647,6 +645,21 @@ async def get_model(model: str = DEFAULT_MODEL, language: str = "en") -> Compile
             "time": {
                 "command": "uvx",
                 "args": ["mcp-server-time", "--local-timezone=Asia/Shanghai"],
+                "transport": "stdio",
+            },
+            "arxiv-mcp-server": {
+                "command": "uv",
+                "args": [
+                    "tool",
+                    "run",
+                    "arxiv-mcp-server",
+                    "--storage-path", "/path/to/paper/storage"
+                ],
+                "transport": "stdio",
+            },
+            "yfmcp": {
+                "command": "uvx",
+                "args": ["yfmcp@latest"],
                 "transport": "stdio",
             },
         }
