@@ -7,3 +7,4 @@ data/*
 db
 docker-compose.yml
 .vscode
+workspace

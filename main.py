@@ -644,6 +644,11 @@ async def get_model(model: str = DEFAULT_MODEL, language: str = "en") -> Compile
                 ],
                 "transport": "stdio",
             },
+            "time": {
+                "command": "uvx",
+                "args": ["mcp-server-time", "--local-timezone=Asia/Shanghai"],
+                "transport": "stdio",
+            },
         }
     )
 
