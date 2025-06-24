@@ -14,10 +14,10 @@ click==8.2.1
 colorama==0.4.6
 dataclasses-json==0.6.7
 distro==1.9.0
+docopt==0.6.2
 duckduckgo_search==8.0.4
 feedparser==6.0.11
 frozenlist==1.7.0
-geojson==2.5.0
 google-api-core==2.25.1
 google-api-python-client==2.173.0
 google-auth==2.40.3
@@ -66,6 +66,7 @@ orjson==3.10.18
 ormsgpack==1.10.0
 packaging==24.2
 pathspec==0.12.1
+pip-autoremove==0.10.0
 primp==0.15.0
 propcache==0.3.2
 Protego==0.4.0
@@ -77,10 +78,8 @@ pydantic==2.11.7
 pydantic-settings==2.10.0
 pydantic_core==2.33.2
 Pygments==2.19.2
-pyowm==3.3.0
 pyparsing==3.2.3
 pypdf==5.6.1
-PySocks==1.7.1
 python-dotenv==1.1.0
 python-multipart==0.0.20
 python-telegram-bot==22.1
@@ -91,6 +90,7 @@ requests==2.32.4
 requests-toolbelt==1.0.0
 rich==14.0.0
 rsa==4.9.1
+setuptools==80.9.0
 sgmllib3k==1.0.0
 shellingham==1.5.4
 six==1.17.0
