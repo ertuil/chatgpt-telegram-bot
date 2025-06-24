@@ -662,7 +662,12 @@ async def get_model(model: str = DEFAULT_MODEL, language: str = "en") -> Compile
                     "mcp"
                 ],
                 "transport": "stdio",
-            }
+            },
+            "mcp-scholarly": {
+                "command": "uvx",
+                "args": [ "mcp-scholarly" ],
+                "transport": "stdio",
+            } 
         }
     )
 
