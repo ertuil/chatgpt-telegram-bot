@@ -648,12 +648,10 @@ async def get_model(model: str = DEFAULT_MODEL, language: str = "en") -> Compile
                 "transport": "stdio",
             },
             "arxiv-mcp-server": {
-                "command": "uv",
+                "command": "uvx",
                 "args": [
-                    "tool",
-                    "run",
                     "arxiv-mcp-server",
-                    "--storage-path", "/path/to/paper/storage"
+                    "--storage-path", "/app/data"
                 ],
                 "transport": "stdio",
             },
