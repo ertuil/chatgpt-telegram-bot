@@ -36,7 +36,6 @@ from langchain_community.tools import (
     WikipediaQueryRun,
     WolframAlphaQueryRun,
 )
-from langchain_tavily import TavilySearch
 from langchain_google_community import GoogleSearchAPIWrapper
 from langchain_community.utilities import (
     WikipediaAPIWrapper,
@@ -588,18 +587,6 @@ async def get_model(model: str = DEFAULT_MODEL, language: str = "en") -> Compile
             )
         )
 
-    if os.environ.get("TAVILY_API_KEY"):
-
-        tavtool = TavilySearch(
-            max_results=3,
-            search_depth="basic",
-            include_answer=True,
-            include_raw_content=True,
-            include_images=False,
-        )
-
-        tools.append(tavtool)
-
     if (
         os.environ.get("GOOGLE_CSE_ID", None) is not None
         and os.environ.get("GOOGLE_API_KEY", None) is not None
@@ -621,57 +608,60 @@ async def get_model(model: str = DEFAULT_MODEL, language: str = "en") -> Compile
             )
         )
 
-    client = MultiServerMCPClient(
-        {
-            "python-interpreter": {
-                "command": "uvx",
-                "args": [
-                    "mcp-python-interpreter",
-                    "--dir",
-                    "./workspace",
-                    "--python-path",
-                    "/usr/local/bin/python"
-                ],
-                "env": {"MCP_ALLOW_SYSTEM_ACCESS": "0"},
-                "transport": "stdio",
-            },
-            "fetch-webpage": {
-                "command": "uvx",
-                "args": [
-                    "mcp-server-fetch",
-                    "--ignore-robots-txt",
-                    "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36 Edg/137.0.0.0",
-                ],
-                "transport": "stdio",
-            },
-            "time": {
-                "command": "uvx",
-                "args": ["mcp-server-time", "--local-timezone=Asia/Shanghai"],
-                "transport": "stdio",
-            },
-            "arxiv-mcp-server": {
-                "command": "uvx",
-                "args": [
-                    "arxiv-mcp-server",
-                    "--storage-path", "/app/data"
-                ],
-                "transport": "stdio",
-            },
-            "basic-memory": {
-                "command": "uvx",
-                "args": [
-                    "basic-memory",
-                    "mcp"
-                ],
-                "transport": "stdio",
-            },
-            "mcp-scholarly": {
-                "command": "uvx",
-                "args": [ "mcp-scholarly" ],
-                "transport": "stdio",
-            } 
+    mcp_tools = {
+        "python-interpreter": {
+            "command": "uvx",
+            "args": [
+                "mcp-python-interpreter",
+                "--dir",
+                "./workspace",
+                "--python-path",
+                "/usr/local/bin/python",
+            ],
+            "env": {"MCP_ALLOW_SYSTEM_ACCESS": "0"},
+            "transport": "stdio",
+        },
+        "fetch-webpage": {
+            "command": "uvx",
+            "args": [
+                "mcp-server-fetch",
+                "--ignore-robots-txt",
+                "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36 Edg/137.0.0.0",
+            ],
+            "transport": "stdio",
+        },
+        "time": {
+            "command": "uvx",
+            "args": ["mcp-server-time", "--local-timezone=Asia/Shanghai"],
+            "transport": "stdio",
+        },
+        "arxiv-mcp-server": {
+            "command": "uvx",
+            "args": ["arxiv-mcp-server", "--storage-path", "/app/data"],
+            "transport": "stdio",
+        },
+        "basic-memory": {
+            "command": "uvx",
+            "args": ["basic-memory", "mcp"],
+            "transport": "stdio",
+        },
+        "mcp-scholarly": {
+            "command": "uvx",
+            "args": ["mcp-scholarly"],
+            "transport": "stdio",
+        },
+    }
+
+    if os.environ.get("TAVILY_API_KEY"):
+
+        mcp_tools["tavily"] = {
+            "command": "python",
+            "args": ["-m", "mcp_server_tavily"],
+            "env": {"TAVILY_API_KEY": os.environ.get("TAVILY_API_KEY")},
+            "transport": "stdio",
         }
-    )
+
+    client = MultiServerMCPClient(mcp_tools)
 
     mcp_tools = await client.get_tools()
     tools.extend(mcp_tools)
