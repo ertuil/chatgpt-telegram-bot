@@ -651,7 +651,7 @@ async def get_model(model: str = DEFAULT_MODEL, language: str = "en") -> Compile
             "transport": "stdio",
         },
     }
-
+ 
     if os.environ.get("TAVILY_API_KEY"):
 
         mcp_tools["tavily"] = {
