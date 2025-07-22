@@ -976,6 +976,7 @@ async def select_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/set_model deepseek-r1",
         "/set_model deepseek-v3",
         "/set_model gpt-4o-2024-11-20",
+        "/set_model Moonshot-Kimi-K2-Instruct"
     ]
 
     if eff_id != chat_id:
