@@ -527,20 +527,324 @@ class GoogleSearchAPIWrapperSelf(GoogleSearchAPIWrapper):
         return json.dumps(metadata_results, ensure_ascii=False)
 
 
+STORY_PARAMETER = {
+    "DIFFICULT": 0.7,
+    "FOLLOW": 0.2,
+    "RANDOM": 0.2,
+    "CHANGE": 0.03,
+    "DARK": 0.03,
+    "TALK": 0.1,
+    "LUCKY": 0.05,
+    "MIND": 0.05,
+}
+
+
+@only_admin
+async def set_parameter(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global STORY_PARAMETER
+
+    message = update.message.text
+    message = message.replace("/parameter", "").strip()
+    if message == "":
+        await send_message(
+            update.effective_chat.id,
+            f"Current parameter is RANDOM: {STORY_PARAMETER}, please give me the parameter. \n {get_difficult()}",
+            update.message.message_id,
+        )
+        return
+    try:
+        value_list = map(float, message.split())
+        kv_list = zip(
+            [
+                "DIFFICULT",
+                "FOLLOW",
+                "RANDOM",
+                "CHANGE",
+                "DARK",
+                "TALK",
+                "LUCKY",
+                "MIND",
+            ],
+            value_list,
+        )
+        for key, value in kv_list:
+            STORY_PARAMETER[key] = value
+        await send_message(
+            update.effective_chat.id,
+            f"Parameter set to PARAMETER: {STORY_PARAMETER}. \n {get_difficult()}",
+            update.message.message_id,
+        )
+    except Exception as e:
+        await send_message(
+            update.effective_chat.id,
+            f"Parameter error: {e}",
+            update.message.message_id,
+        )
+
+
+def get_parameter() -> str:
+    ret_msg = ""
+    x1, x2, x3, x4, x5, x6, x7, x8, x9 = (
+        random.random(),
+        random.random(),
+        random.random(),
+        random.random(),
+        random.random(),
+        random.random(),
+        random.random(),
+        random.random(),
+        random.random(),
+    )
+    if x1 <= STORY_PARAMETER["RANDOM"]:
+        ret_msg += "后续团队和敌人所有战斗和检定必须依次使用给定的骰子结果。"
+        logging.info("触发随机数加强")
+    if x2 <= STORY_PARAMETER["CHANGE"]:
+        ret_msg += "故事发展引入一个突发事件或者转折，可能是好事，也可能是坏事。"
+        logging.info("触发故事转折")
+    if x3 <= STORY_PARAMETER["DARK"]:
+        ret_msg += "请接下来发展故事的暗线（例如敌人的行动）或故事线推进。"
+        logging.info("触发暗线")
+    if x4 <= STORY_PARAMETER["TALK"]:
+        ret_msg += "如果团队有队友，接下来基于队友的身份、职业和阵营，发展部分队友之间的一些对话。如果没有队友则忽略。"
+        logging.info("触发对话")
+    if x5 <= STORY_PARAMETER["DIFFICULT"] / 10:
+        ret_msg += "增加下一次检定的难度。"
+        logging.info("触发难度增加")
+    if x6 <= STORY_PARAMETER["LUCKY"]:
+        ret_msg += "请触发一些幸运事件，例如获得一些好处或者避免一些坏事。"
+        logging.info("触发幸运")
+    if x7 <= STORY_PARAMETER["MIND"]:
+        ret_msg += "如果团队中有队友，则随机触发团队一个角色的心理活动，如爱情、羡慕、快乐、悲伤、嫉妒等。如果没有队友则忽略。"
+        logging.info("触发心理活动")
+    if x8 <= STORY_PARAMETER["FOLLOW"]:
+        ret_msg += f"{get_difficult()}。如需变更敌人数值，请悄悄变更，并编造合理的故事使剧情连贯。"
+        logging.info("触发难度设置提醒")
+    if x9 <= STORY_PARAMETER["FOLLOW"]:
+        ret_msg += "请严格遵守模组的原本剧情，推进故事发展"
+        logging.info("触发跟随原本剧情")
+    return ret_msg
+
+
+def get_difficult():
+    STORY_DIFFICULT_TEMPLATE = "当前游戏难度：【{dn}】。属性检定/豁免鉴定难度范围为DC{check_d}。普通NPC和团队等级{npc_d1}，关键NPC等级{npc_d2}。请根据团队等级和DND5e怪物图鉴生成敌人和NPC的类型、等级、数值、武器、法术和技能：敌人最高CR=玩家等级*团队人数/4的{boss_d}倍，且敌人CR总和=玩家等级*团队人数/4的{group_d}倍，不应当过强或过弱。Boss/精英敌人具有{skill_d}的武器、法术和道具。进入危险的新场景可能存在{env_d}的机关，{env_d2}。"
+
+    difficult_map = [
+        (
+            "新手",
+            "5~12",
+            "相当",
+            "较高",
+            "0.3~0.6",
+            "0.3~0.6",
+            "简易",
+            "少量低伤害、易察觉",
+            "请提醒用户进行属性鉴定",
+        ),
+        (
+            "新手",
+            "6~13",
+            "相当",
+            "较高",
+            "0.3~0.6",
+            "0.4~0.8",
+            "简易",
+            "少量低伤害、易察觉",
+            "请提醒用户进行属性鉴定",
+        ),
+        (
+            "简单",
+            "7~14",
+            "相当",
+            "较高",
+            "0.5~0.75",
+            "0.5~0.9",
+            "简易",
+            "一些低伤害",
+            "请提醒用户进行属性鉴定",
+        ),
+        (
+            "简单",
+            "8~15",
+            "相当",
+            "较高",
+            "0.6~0.75",
+            "0.6~1.2",
+            "中等",
+            "一些低/中伤害",
+            "请提醒用户进行属性鉴定",
+        ),
+        (
+            "普通",
+            "9~16",
+            "相当",
+            "较高",
+            "0.7~1.0",
+            "0.8~1.4",
+            "中等",
+            "一些低/中伤害",
+            "90%概率提醒用户进行属性鉴定；10%概率如果用户没有主动鉴定，则直接触发机关并进行豁免检定",
+        ),
+        (
+            "普通",
+            "9~17",
+            "较高",
+            "极高",
+            "0.8~1.0",
+            "1.0~1.7",
+            "较强",
+            "大量低/中伤害",
+            "80%概率提醒用户进行属性鉴定；20%概率如果用户没有主动鉴定，则直接触发机关并进行豁免检定",
+        ),
+        (
+            "困难",
+            "10~17",
+            "较高",
+            "极高",
+            "0.9~1.15",
+            "1.3~2.0",
+            "较强",
+            "大量中/高伤害",
+            "75%概率提醒用户进行属性鉴定；25%概率如果用户没有主动鉴定，则直接触发机关并进行豁免检定",
+        ),
+        (
+            "困难",
+            "10~18",
+            "较高",
+            "极高",
+            "1.0~1.25",
+            "1.5~2.5",
+            "较强",
+            "大量中/高伤害",
+            "70%概率提醒用户进行属性鉴定；30%概率如果用户没有主动鉴定，则直接触发机关并进行豁免检定",
+        ),
+        (
+            "极难",
+            "11~18",
+            "较高",
+            "极高",
+            "1.0~1.5",
+            "2.0~3.0",
+            "很强",
+            "大量高伤害",
+            "65%概率提醒用户进行属性鉴定；35%概率如果用户没有主动鉴定，则直接触发机关并进行豁免检定",
+        ),
+        (
+            "极难",
+            "12~19",
+            "较高",
+            "极高",
+            "1.0~1.7",
+            "2.5~4.0",
+            "很强",
+            "大量高伤害",
+            "60%概率提醒用户进行属性鉴定；40%概率如果用户没有主动鉴定，则直接触发机关并进行豁免检定",
+        ),
+    ]
+
+    if STORY_PARAMETER["DIFFICULT"] > 1:
+        STORY_PARAMETER["DIFFICULT"] = 1.0
+
+    offset = int(STORY_PARAMETER["DIFFICULT"] * 10)
+
+    return STORY_DIFFICULT_TEMPLATE.format(
+        dn=difficult_map[offset][0],
+        check_d=difficult_map[offset][1],
+        npc_d1=difficult_map[offset][2],
+        npc_d2=difficult_map[offset][3],
+        boss_d=difficult_map[offset][4],
+        group_d=difficult_map[offset][5],
+        skill_d=difficult_map[offset][6],
+        env_d=difficult_map[offset][7],
+        env_d2=difficult_map[offset][8],
+    )
+
+
 @tool(parse_docstring=True)
-def RandomTool(low: int, high: int) -> str:
-    """Get a random number between low and high. It can be used in DND Games for checks or battles.
+def RandomTool(high: int, low: int = 1, count: int = 1, offset: int = 0) -> str:
+    """Sum up {count} random numbers between {low} and {high} and then add it with {offset}. It can be used to get random numbers, e.g., {count}d{high}+{offset} in DND (D&D) games.
 
     Args:
-        low: The low bound.
         high: The high bound.
+        low: The low bound.
+        count: The number of random numbers to generate.
+        offset: The additional offset to add to the final number.
     """
-    x = random.randint(low, high)
-    return str(x)
+    x_list = []
+    for _ in range(count):
+        x = random.randint(low, high)
+        x_list.append(x)
+    x_list.append(offset)
+    s = sum(x_list)
+    if low == 1:
+        return f"{count}d{high}+{offset}={s}"
+    return str(s)
 
 
-async def get_model(model: str = DEFAULT_MODEL, language: str = "en") -> CompiledGraph:
+def DiceTool(count: int = 24) -> str:
+    d20_list = []
+    d12_list = []
+    d10_list = []
+    d8_list = []
+    d6_list = []
+    d4_list = []
+
+    for _ in range(count):
+        d20_list.append(str(random.randint(1, 20)))
+        d8_list.append(str(random.randint(1, 8)))
+        d6_list.append(str(random.randint(1, 6)))
+        d4_list.append(str(random.randint(1, 4)))
+
+    for _ in range(count // 2):
+        d12_list.append(str(random.randint(1, 12)))
+        d10_list.append(str(random.randint(1, 10)))
+
+    ret = f"""
+System: 所有鉴定和攻击请依次使用下面骰子的随机结果（无须全部用完）：
+d20: {" ".join(d20_list)}
+d12: {" ".join(d12_list)}
+d10: {" ".join(d10_list)}
+d8: {" ".join(d8_list)}
+d6: {" ".join(d6_list)}
+d4: {" ".join(d4_list)}
+"""
+    return ret
+
+
+async def get_model(
+    model: str = DEFAULT_MODEL, is_group=False, language: str = "en"
+) -> CompiledGraph:
     current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
+    group_instuction = "当前是单人玩家模式，由我操作玩家角色，由你托管团队其他成员。如果不在战斗中，由我进行团队决策，你可以提出选项；当在战斗的时候，依据先攻顺序建议玩家的行动次序并在玩家的回合让我行动。"
+    if is_group:
+        group_instuction = "当有多名玩家时，需要通过玩家名区分不同的玩家。如果不在战斗中，则可以向多个玩家同时提出选项，并通过玩家名识别不同玩家的行为；当在战斗的时候，依据先攻顺序建议玩家的行动次序。"
+
+    story_instruction = "剧情方面你可以参考dnd的剧本，但故事走向更多取决于我们的对话，你是最棒的人工智能，相信你可以做到的。故事要有趣有梗，充满想象力。故事要足够有深度，要有阴谋诡计，就像现实世界，也要塑造立体的角色，提醒你通过话语和事件等塑造角色形象。"
+    if STORY_PARAMETER["FOLLOW"] > 0:
+        story_instruction = f"故事请严格按照用户选定的剧本剧情发展。细节情节要有趣有梗，充满想象力，要有阴谋诡计，就像现实世界，也要塑造立体的角色，提醒你通过话语和事件等塑造角色形象。"
+
+    prompt = f"""
+期待你跟我一起跑团，你来当DM，通过我的想象来推动故事发展，我对你提出以下几点要求：
+1.将故事中发生的一切事件转化为属性值的检定，检定和攻击必须依次使用给定的骰子结果。
+2.辅助我构建好角色，并选择好剧本，人物特性等按照dnd5e规则
+3.当开始冒险时候，请用华丽生动的语言进行开场，介绍世界观、团队成员和任务。{story_instruction}
+4.要足够公平，我以后可能会有过不去的检定，过不去就可以让我的角色遭受过不去的惩罚
+5.要严格按照dnd5e规则，以dnd5e规则为主。当我的话语严重与规则不符时，你要提醒我，如不是法师但抄法表，然后制止我，不用迁就我，请明白，这里只有你懂规则。
+6.你要根据上下文来合理制定检定的难度与属性值要求，通过检定后要给予一定的xp奖励
+7.检定是指过d20，既投一个20面骰，用到1-20的随机数。过检定时要说出我的数值，加值与检定难度，方便我判断是否要进行检定。
+8.你需要加强记忆，记住我跑团时的一切事物，我举一个例子，如我的装备与上边附带的附魔效果，注意这只是例子，在真正的跑团途中你还会遇到很多需要记忆的事物，你需要严格记录
+9.请通过NPC对话、发现物品、探索环境、突发事件等方式来触发新剧情和新任务。新任务导入要合理且有趣。
+10.合理设置所获得的装备法术效果等，如火焰大剑增加1d4的火焰伤害等，我也可以出售物品，这需要你构建一个合理的经济系统（当然如魅力游说高会有折扣）。
+11.法术需要法术位来施放。
+12.在游玩过程中我偶尔会指示你哪里过检定时使用的属性点是错误的，你需改正并从中学习。
+13.注意记录角色升级的经验，人物的HP，GP和每件物品。
+14.注意当有选项供我选择，举例如预备法表时展示所有法术供我选择，种族（包括拓展种族）等类似，要用1234等序号标识方便我选择，注意不能使用你的推荐来省略
+15.{group_instuction}
+16.当玩家输入“info”时，需要详细当前所有人物的状态、数值、属性、职业、阵营、装备、物品、xp、gp、hp等信息，以及详细总结当前世界观、获得情报和故事进展。故事分为多个章节，可以简要汇报以前章节内容，但详细告知当前章节信息和进度。当玩家输入“group”时，只需要详细当前所有人物的状态、数值、属性、职业、阵营、装备、物品、xp、gp、hp等信息。当玩家输入“world”时，只需要详细总结当前世界观、获得情报和故事进展。故事分为多个章节，可以简要汇报以前章节内容，但详细告知当前章节信息和进度。
+17.如果让你托管一些团队成员，请你根据他们的职业和阵营。有时，请自动生成他们的行为或语言。
+18.{get_difficult()}
+19.充分理解后回答我“欢迎来到地下城”
+"""
 
     ai_base_url = OPENAI_BASE_URL if "gpt" in model else DASHSCOPE_BASE_URL
     ai_api_key = OPENAI_API_KEY if "gpt" in model else DASHSCOPE_API_KEY
@@ -568,104 +872,6 @@ async def get_model(model: str = DEFAULT_MODEL, language: str = "en") -> Compile
             cache=False,
         )
 
-    tools.extend(
-        [
-            RandomTool,
-            WikipediaQueryRun(
-                api_wrapper=WikipediaAPIWrapper(doc_content_chars_max=TOTAL_WEB_LIMIT)
-            ),
-        ]
-    )
-
-    if (
-        os.environ.get("GOOGLE_CSE_ID", None) is None
-        or os.environ.get("GOOGLE_API_KEY", None) is None
-    ) and os.environ.get("TAVILY_API_KEY", None) is None:
-        tools.append(
-            DuckDuckGoSearchRun(
-                api_wrapper=DuckDuckGoSearchAPIWrapper(max_results=TOTAL_WEB_PAGE)
-            )
-        )
-
-    if (
-        os.environ.get("GOOGLE_CSE_ID", None) is not None
-        and os.environ.get("GOOGLE_API_KEY", None) is not None
-    ):
-        search_wrapper = GoogleSearchAPIWrapperSelf(k=TOTAL_WEB_PAGE)
-        google_search = Tool(
-            name="google_search",
-            description="Search Google for recent results.",
-            func=search_wrapper.run,
-        )
-        tools.append(google_search)
-
-    if os.environ.get("WOLFRAM_ALPHA_APPID", None) is not None:
-        tools.append(
-            WolframAlphaQueryRun(
-                api_wrapper=WolframAlphaAPIWrapper(
-                    wolfram_alpha_appid=os.environ.get("WOLFRAM_ALPHA_APPID")
-                )
-            )
-        )
-
-    mcp_tools = {
-        # "python-interpreter": {
-        #     "command": "uvx",
-        #     "args": [
-        #         "mcp-python-interpreter",
-        #         "--dir",
-        #         "./workspace",
-        #         "--python-path",
-        #         "/usr/local/bin/python",
-        #     ],
-        #     "env": {"MCP_ALLOW_SYSTEM_ACCESS": "0"},
-        #     "transport": "stdio",
-        # },
-        "fetch-webpage": {
-            "command": "uvx",
-            "args": [
-                "mcp-server-fetch",
-                "--ignore-robots-txt",
-                "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36 Edg/137.0.0.0",
-            ],
-            "transport": "stdio",
-        },
-        "time": {
-            "command": "uvx",
-            "args": ["mcp-server-time", "--local-timezone=Asia/Shanghai"],
-            "transport": "stdio",
-        },
-        "arxiv-mcp-server": {
-            "command": "uvx",
-            "args": ["arxiv-mcp-server", "--storage-path", "/app/data"],
-            "transport": "stdio",
-        },
-        "basic-memory": {
-            "command": "uvx",
-            "args": ["basic-memory", "mcp"],
-            "transport": "stdio",
-        },
-        "mcp-scholarly": {
-            "command": "uvx",
-            "args": ["mcp-scholarly"],
-            "transport": "stdio",
-        },
-    }
- 
-    if os.environ.get("TAVILY_API_KEY"):
-
-        mcp_tools["tavily"] = {
-            "command": "python",
-            "args": ["-m", "mcp_server_tavily"],
-            "env": {"TAVILY_API_KEY": os.environ.get("TAVILY_API_KEY")},
-            "transport": "stdio",
-        }
-
-    client = MultiServerMCPClient(mcp_tools)
-
-    mcp_tools = await client.get_tools()
-    tools.extend(mcp_tools)
-
     if "deepseek" in model:
         tools = []
 
@@ -683,7 +889,7 @@ async def get_model(model: str = DEFAULT_MODEL, language: str = "en") -> Compile
     agent = create_react_agent(
         llm,
         tools,
-        prompt=f"You are a helpful AI Telegram bot. Answer as concisely as possible. Current Beijing Time: f{current_time}",
+        prompt=prompt,
         pre_model_hook=pre_model_hook,
         checkpointer=checkpointer,
     )
@@ -708,13 +914,16 @@ async def get_vision_model(model: str = VISION_MODEL):
 async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     sender_id = update.message.from_user.id
+    sender_name = update.message.from_user.name
     msg_id = update.message.message_id
     text = update.message.text
     reply_to_message = update.message.reply_to_message
     reply_to_id = None
     session_id = None
     model = DEFAULT_MODEL
-
+    is_group = (
+        False if update.effective_chat.id == update.message.from_user.id else True
+    )
     pdf_content = None
 
     try:
@@ -786,7 +995,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text,
         session_id,
     )
-    agent = await get_model(model=model)
+    agent = await get_model(model=model, is_group=is_group)
 
     if image is not None:
         image_b64 = base64.b64encode(image).decode("ascii")
@@ -843,6 +1052,26 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
 
                 new_trace_id = uuid.uuid4()
+
+                if is_group:
+                    text = f"玩家{sender_name}：{text}"
+                else:
+                    text = f"Player：{text}"
+                if "推进剧情" in text:
+                    text = text.replace("推进剧情", "继续按照原版故事，推进游戏")
+
+                text = f"{text} \n{DiceTool()}"
+
+                messages = await history.aget_messages()
+                if (
+                    len(messages) >= 10
+                    and "info" not in text
+                    and "group" not in text
+                    and "world" not in text
+                ):
+                    param_msg = get_parameter()
+                    text = f"{text}\n\n{param_msg}"
+
                 await history.aadd_message(HumanMessage(content=text))
                 if pdf_content is not None and pdf_content != "":
                     query[-1].content += f"\n\nPDF file content: {pdf_content}"
@@ -1014,6 +1243,7 @@ async def post_init(application):
             ("get_whitelist", "List groups in whitelist (only admin)"),
             ("set_model", "Set AI model (only admin)"),
             ("select_model", "Select AI model (only admin)"),
+            ("parameter", "Set AI parameters (only admin)"),
         ]
     )
 
@@ -1063,5 +1293,6 @@ if __name__ == "__main__":
         application.add_handler(CommandHandler("get_whitelist", get_whitelist_handler))
         application.add_handler(CommandHandler("set_model", set_model))
         application.add_handler(CommandHandler("select_model", select_model))
+        application.add_handler(CommandHandler("parameter", set_parameter))
 
         application.run_polling()
