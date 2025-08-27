@@ -8,4 +8,4 @@ docker-compose.yml
 .vscode
 workspace
 .venv
-__pycache__
+__pycache__/*

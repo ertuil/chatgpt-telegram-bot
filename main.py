@@ -527,8 +527,9 @@ class GoogleSearchAPIWrapperSelf(GoogleSearchAPIWrapper):
         return json.dumps(metadata_results, ensure_ascii=False)
 
 
+STORY_DIFFICULT = 3
+
 STORY_PARAMETER = {
-    "DIFFICULT": 0.7,
     "FOLLOW": 0.2,
     "RANDOM": 0.2,
     "CHANGE": 0.03,
@@ -540,38 +541,27 @@ STORY_PARAMETER = {
 
 
 @only_admin
-async def set_parameter(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global STORY_PARAMETER
+async def set_different(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global STORY_DIFFICULT
 
     message = update.message.text
-    message = message.replace("/parameter", "").strip()
+    message = message.replace("/difficult", "").strip()
     if message == "":
         await send_message(
             update.effective_chat.id,
-            f"Current parameter is RANDOM: {STORY_PARAMETER}, please give me the parameter. \n {get_difficult()}",
+            f"Current difficulty: {STORY_DIFFICULT}, please give me the difficulty. \n {get_difficult()} {STORY_PARAMETER}",
             update.message.message_id,
         )
         return
+
     try:
-        value_list = map(float, message.split())
-        kv_list = zip(
-            [
-                "DIFFICULT",
-                "FOLLOW",
-                "RANDOM",
-                "CHANGE",
-                "DARK",
-                "TALK",
-                "LUCKY",
-                "MIND",
-            ],
-            value_list,
-        )
-        for key, value in kv_list:
-            STORY_PARAMETER[key] = value
+
+        difficult = int(message)
+        STORY_DIFFICULT = difficult
+
         await send_message(
             update.effective_chat.id,
-            f"Parameter set to PARAMETER: {STORY_PARAMETER}. \n {get_difficult()}",
+            f"Current difficulty: {STORY_DIFFICULT}, please give me the difficulty. \n {get_difficult()} {STORY_PARAMETER}",
             update.message.message_id,
         )
     except Exception as e:
@@ -607,7 +597,7 @@ def get_parameter() -> str:
     if x4 <= STORY_PARAMETER["TALK"]:
         ret_msg += "如果团队有队友，接下来基于队友的身份、职业和阵营，发展部分队友之间的一些对话。如果没有队友则忽略。"
         logging.info("触发对话")
-    if x5 <= STORY_PARAMETER["DIFFICULT"] / 10:
+    if x5 <= STORY_DIFFICULT / 20:
         ret_msg += "增加下一次检定的难度。"
         logging.info("触发难度增加")
     if x6 <= STORY_PARAMETER["LUCKY"]:
@@ -631,29 +621,7 @@ def get_difficult():
     difficult_map = [
         (
             "新手",
-            "5~12",
-            "相当",
-            "较高",
-            "0.3~0.6",
-            "0.3~0.6",
-            "简易",
-            "少量低伤害、易察觉",
-            "请提醒用户进行属性鉴定",
-        ),
-        (
-            "新手",
-            "6~13",
-            "相当",
-            "较高",
-            "0.3~0.6",
-            "0.4~0.8",
-            "简易",
-            "少量低伤害、易察觉",
-            "请提醒用户进行属性鉴定",
-        ),
-        (
-            "简单",
-            "7~14",
+            "5~14",
             "相当",
             "较高",
             "0.5~0.75",
@@ -661,21 +629,19 @@ def get_difficult():
             "简易",
             "一些低伤害",
             "请提醒用户进行属性鉴定",
+            {
+                "FOLLOW": 0.1,
+                "RANDOM": 0.05,
+                "CHANGE": 0.03,
+                "DARK": 0.02,
+                "TALK": 0.1,
+                "LUCKY": 0.07,
+                "MIND": 0.05,
+            },
         ),
         (
             "简单",
-            "8~15",
-            "相当",
-            "较高",
-            "0.6~0.75",
-            "0.6~1.2",
-            "中等",
-            "一些低/中伤害",
-            "请提醒用户进行属性鉴定",
-        ),
-        (
-            "普通",
-            "9~16",
+            "7~16",
             "相当",
             "较高",
             "0.7~1.0",
@@ -683,6 +649,15 @@ def get_difficult():
             "中等",
             "一些低/中伤害",
             "90%概率提醒用户进行属性鉴定；10%概率如果用户没有主动鉴定，则直接触发机关并进行豁免检定",
+            {
+                "FOLLOW": 0.1,
+                "RANDOM": 0.05,
+                "CHANGE": 0.03,
+                "DARK": 0.03,
+                "TALK": 0.1,
+                "LUCKY": 0.06,
+                "MIND": 0.05,
+            },
         ),
         (
             "普通",
@@ -694,17 +669,15 @@ def get_difficult():
             "较强",
             "大量低/中伤害",
             "80%概率提醒用户进行属性鉴定；20%概率如果用户没有主动鉴定，则直接触发机关并进行豁免检定",
-        ),
-        (
-            "困难",
-            "10~17",
-            "较高",
-            "极高",
-            "0.9~1.15",
-            "1.3~2.0",
-            "较强",
-            "大量中/高伤害",
-            "75%概率提醒用户进行属性鉴定；25%概率如果用户没有主动鉴定，则直接触发机关并进行豁免检定",
+            {
+                "FOLLOW": 0.1,
+                "RANDOM": 0.07,
+                "CHANGE": 0.05,
+                "DARK": 0.04,
+                "TALK": 0.1,
+                "LUCKY": 0.05,
+                "MIND": 0.05,
+            },
         ),
         (
             "困难",
@@ -716,21 +689,19 @@ def get_difficult():
             "较强",
             "大量中/高伤害",
             "70%概率提醒用户进行属性鉴定；30%概率如果用户没有主动鉴定，则直接触发机关并进行豁免检定",
+            {
+                "FOLLOW": 0.2,
+                "RANDOM": 0.1,
+                "CHANGE": 0.07,
+                "DARK": 0.05,
+                "TALK": 0.1,
+                "LUCKY": 0.04,
+                "MIND": 0.05,
+            },
         ),
         (
             "极难",
-            "11~18",
-            "较高",
-            "极高",
-            "1.0~1.5",
-            "2.0~3.0",
-            "很强",
-            "大量高伤害",
-            "65%概率提醒用户进行属性鉴定；35%概率如果用户没有主动鉴定，则直接触发机关并进行豁免检定",
-        ),
-        (
-            "极难",
-            "12~19",
+            "12~20",
             "较高",
             "极高",
             "1.0~1.7",
@@ -738,13 +709,30 @@ def get_difficult():
             "很强",
             "大量高伤害",
             "60%概率提醒用户进行属性鉴定；40%概率如果用户没有主动鉴定，则直接触发机关并进行豁免检定",
+            {
+                "FOLLOW": 0.2,
+                "RANDOM": 0.1,
+                "CHANGE": 0.07,
+                "DARK": 0.05,
+                "TALK": 0.1,
+                "LUCKY": 0.04,
+                "MIND": 0.05,
+            },
         ),
     ]
 
-    if STORY_PARAMETER["DIFFICULT"] > 1:
-        STORY_PARAMETER["DIFFICULT"] = 1.0
+    global STORY_DIFFICULT
+    if STORY_DIFFICULT >= 5:
+        STORY_DIFFICULT = 5
 
-    offset = int(STORY_PARAMETER["DIFFICULT"] * 10)
+    if STORY_DIFFICULT <= 1:
+        STORY_DIFFICULT = 1
+
+    offset = STORY_DIFFICULT - 1
+
+    global STORY_PARAMETER
+
+    STORY_PARAMETER = difficult_map[offset][9]
 
     return STORY_DIFFICULT_TEMPLATE.format(
         dn=difficult_map[offset][0],
@@ -780,7 +768,7 @@ def RandomTool(high: int, low: int = 1, count: int = 1, offset: int = 0) -> str:
     return str(s)
 
 
-def DiceTool(count: int = 24) -> str:
+def DiceTool(count: int = 30) -> str:
     d20_list = []
     d12_list = []
     d10_list = []
@@ -842,8 +830,9 @@ async def get_model(
 15.{group_instuction}
 16.当玩家输入“info”时，需要详细当前所有人物的状态、数值、属性、职业、阵营、装备、物品、xp、gp、hp等信息，以及详细总结当前世界观、获得情报和故事进展。故事分为多个章节，可以简要汇报以前章节内容，但详细告知当前章节信息和进度。当玩家输入“group”时，只需要详细当前所有人物的状态、数值、属性、职业、阵营、装备、物品、xp、gp、hp等信息。当玩家输入“world”时，只需要详细总结当前世界观、获得情报和故事进展。故事分为多个章节，可以简要汇报以前章节内容，但详细告知当前章节信息和进度。
 17.如果让你托管一些团队成员，请你根据他们的职业和阵营。有时，请自动生成他们的行为或语言。
-18.{get_difficult()}
-19.充分理解后回答我“欢迎来到地下城”
+18.当团队进入新场景的时候，你需要详细描述一下地图和环境（例如机关、环境、可用的物品等），以方便用户执行动作。如果环境中可能有机关，且用户没有进行鉴定，DM可以自动触发一些机关。
+19.{get_difficult()}
+20.充分理解后回答我“欢迎来到地下城”
 """
 
     ai_base_url = OPENAI_BASE_URL if "gpt" in model else DASHSCOPE_BASE_URL
@@ -1243,7 +1232,7 @@ async def post_init(application):
             ("get_whitelist", "List groups in whitelist (only admin)"),
             ("set_model", "Set AI model (only admin)"),
             ("select_model", "Select AI model (only admin)"),
-            ("parameter", "Set AI parameters (only admin)"),
+            ("difficult", "Set game difficulty (only admin)"),
         ]
     )
 
@@ -1293,6 +1282,6 @@ if __name__ == "__main__":
         application.add_handler(CommandHandler("get_whitelist", get_whitelist_handler))
         application.add_handler(CommandHandler("set_model", set_model))
         application.add_handler(CommandHandler("select_model", select_model))
-        application.add_handler(CommandHandler("parameter", set_parameter))
+        application.add_handler(CommandHandler("difficult", set_different))
 
         application.run_polling()

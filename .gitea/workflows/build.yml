@@ -25,4 +25,4 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           push: true
-          tags: git.elliot98.top/elliot/chatgpt-telegram-bot:latest
+          tags: git.elliot98.top/elliot/chatgpt-telegram-bot:dnd
