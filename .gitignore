@@ -9,3 +9,4 @@ docker-compose.yml
 .vscode
 workspace
 .venv
+__pycache__/*

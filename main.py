@@ -609,18 +609,18 @@ async def get_model(model: str = DEFAULT_MODEL, language: str = "en") -> Compile
         )
 
     mcp_tools = {
-        "python-interpreter": {
-            "command": "uvx",
-            "args": [
-                "mcp-python-interpreter",
-                "--dir",
-                "./workspace",
-                "--python-path",
-                "/usr/local/bin/python",
-            ],
-            "env": {"MCP_ALLOW_SYSTEM_ACCESS": "0"},
-            "transport": "stdio",
-        },
+        # "python-interpreter": {
+        #     "command": "uvx",
+        #     "args": [
+        #         "mcp-python-interpreter",
+        #         "--dir",
+        #         "./workspace",
+        #         "--python-path",
+        #         "/usr/local/bin/python",
+        #     ],
+        #     "env": {"MCP_ALLOW_SYSTEM_ACCESS": "0"},
+        #     "transport": "stdio",
+        # },
         "fetch-webpage": {
             "command": "uvx",
             "args": [
