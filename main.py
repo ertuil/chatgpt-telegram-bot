@@ -778,7 +778,7 @@ def replace_think_tags(text):
     replacement = "【DM构思故事，暂时无法揭晓！】"
 
     # 替换匹配的内容
-    result = re.sub(pattern, replacement, text)
+    result = re.sub(pattern, replacement, text, flags=re.DOTALL)
     return result
 
 
