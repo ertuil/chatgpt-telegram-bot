@@ -597,7 +597,7 @@ def get_parameter() -> str:
         ret_msg += "故事发展引入一个突发事件或者转折，可能是好事，也可能是坏事。"
         logging.info("触发故事转折")
     if x3 <= STORY_PARAMETER["DARK"]:
-        ret_msg += "请接下来发展故事的暗线（例如敌人的行动）或故事线推进。"
+        ret_msg += "请接下来发展故事的暗线（例如敌人的行动）或故事线推进。故事的暗线请在 <think> </think> 标记内撰写。这些内容不会显示给用户。"
         logging.info("触发暗线")
     if x4 <= STORY_PARAMETER["TALK"]:
         ret_msg += "如果团队有队友，接下来基于队友的身份、职业和阵营，发展部分队友之间的一些对话。如果没有队友则忽略。"
@@ -773,6 +773,15 @@ def RandomTool(high: int, low: int = 1, count: int = 1, offset: int = 0) -> str:
     return str(s)
 
 
+def replace_think_tags(text):
+    pattern = r"<think>.*?</think>"
+    replacement = "【DM构思故事，暂时无法揭晓！】"
+
+    # 替换匹配的内容
+    result = re.sub(pattern, replacement, text)
+    return result
+
+
 def DiceTool(count: int = 16) -> str:
     d20_list = []
     d12_list = []
@@ -885,7 +894,8 @@ async def get_model(
 23. **玩家自由与规则约束的平衡**。DM需在尊重玩家自由的同时，确保游戏在规则范围内进行。对于不合理的要求或行为，需明确拒绝并解释原因。
 24. **叙事的多感官体验**。在描述场景时，尽量使用多感官描写（视觉、听觉、触觉、嗅觉、味觉），增加沉浸感。
 25. 所有技能、魔法均使用中文来表达。这些专业术语首次出现时候，请给出对应英文原文并在必要时给出具体解释。
-26. {get_difficult()}
+26. 你可以进行思考、思维链或发展故事暗线来规划后续剧情。所有这种思考请使用 <think> </think> 标记和包括。这些思考内容不会显示给用户。
+27. {get_difficult()}
 
 充分理解后回答我“欢迎来到地下城”。
 """
@@ -1142,6 +1152,8 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 messages = v["messages"]
                                 message_0 = messages[0]
                                 reply += message_0.content
+
+                                reply = replace_think_tags(reply)
 
                                 additional_kwargs = message_0.additional_kwargs
                                 if additional_kwargs is None:
