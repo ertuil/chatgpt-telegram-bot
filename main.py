@@ -545,7 +545,12 @@ async def set_different(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global STORY_DIFFICULT
 
     message = update.message.text
+
+    idx = message.find("@")
+    if idx != -1:
+        message = message[:idx]
     message = message.replace("/difficult", "").strip()
+    
     if message == "":
         await send_message(
             update.effective_chat.id,
