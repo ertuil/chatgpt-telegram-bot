@@ -923,6 +923,7 @@ async def get_model(
         trimmed_messages = trim_messages(
             state["messages"],
             strategy="last",
+            include_system=True,
             token_counter=count_tokens_approximately,
             max_tokens=120000,
             start_on="human",
@@ -934,7 +935,7 @@ async def get_model(
         llm,
         tools,
         prompt=prompt,
-        pre_model_hook=pre_model_hook,
+        # pre_model_hook=pre_model_hook,
         checkpointer=checkpointer,
     )
     return agent
