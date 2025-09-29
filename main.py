@@ -597,7 +597,7 @@ def get_parameter() -> str:
         ret_msg += "故事发展引入一个突发事件或者转折，可能是好事，也可能是坏事。"
         logging.info("触发故事转折")
     if x3 <= STORY_PARAMETER["DARK"]:
-        ret_msg += "请接下来发展故事的暗线（例如敌人的行动）或故事线推进。故事的暗线请在 <think> </think> 标记内撰写。这些内容不会显示给用户。"
+        ret_msg += "请接下来发展故事的暗线（例如敌人的行动）或故事线推进。故事的暗线请在 '<think>' 和 '</think>' 标记内撰写。这些内容不会显示给用户。"
         logging.info("触发暗线")
     if x4 <= STORY_PARAMETER["TALK"]:
         ret_msg += "如果团队有队友，接下来基于队友的身份、职业和阵营，发展部分队友之间的一些对话。如果没有队友则忽略。"
